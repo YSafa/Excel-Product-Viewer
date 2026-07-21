@@ -10,11 +10,15 @@ namespace ExcelViewer.Services;
 /// </summary>
 public sealed class ExcelReaderService
 {
+    // Başlık satırı, dosyanın en fazla ilk bu kadar dolu satırı içinde aranır.
+    // Böylece başlıktan önce logo, rapor başlığı, tarih gibi satırlar tolere edilir.
+    private const int HeaderScanRows = 10;
+
     /// <summary>
     /// İlk çalışma sayfasındaki tüm ürün satırlarını okur.
     /// Bloklayan I/O arka plan thread'inde çalışır, böylece UI donmaz.
     /// </summary>
-    public Task<List<Urun>> ReadAsync(string filePath, CancellationToken cancellationToken = default)
+    public Task<ExcelReadResult> ReadAsync(string filePath, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(filePath))
             throw new ArgumentException("Dosya yolu boş olamaz.", nameof(filePath));
@@ -22,12 +26,10 @@ public sealed class ExcelReaderService
         return Task.Run(() => Read(filePath, cancellationToken), cancellationToken);
     }
 
-    private static List<Urun> Read(string filePath, CancellationToken cancellationToken)
+    private static ExcelReadResult Read(string filePath, CancellationToken cancellationToken)
     {
         if (!File.Exists(filePath))
             throw new FileNotFoundException("Excel dosyası bulunamadı.", filePath);
-
-        var result = new List<Urun>();
 
         // FileShare.ReadWrite, dosya Excel'de açık olsa bile okumamıza izin verir.
         using var stream = new FileStream(
@@ -37,13 +39,40 @@ public sealed class ExcelReaderService
         IXLWorksheet worksheet = workbook.Worksheets.First();
         IXLRange? usedRange = worksheet.RangeUsed();
         if (usedRange == null)
-            return result; // Boş sayfa.
+            throw new InvalidDataException("Excel sayfası boş; okunacak veri bulunamadı.");
 
-        // Kolon konumlarını başlık satırından çöz (Türkçe + İngilizce alternatifler).
-        IXLRangeRow headerRow = usedRange.FirstRow();
+        // Başlık satırını tespit et: ilk 10 dolu satır içinde, bilinen bir kolon
+        // adına birebir eşleşen hücre barındıran ilk satır başlık kabul edilir.
+        List<IXLRangeRow> rows = usedRange.RowsUsed().ToList();
+        int headerIndex = -1;
+        int scanLimit = Math.Min(HeaderScanRows, rows.Count);
+        for (int i = 0; i < scanLimit; i++)
+        {
+            if (ColumnResolver.RowHasKnownHeader(rows[i]))
+            {
+                headerIndex = i;
+                break;
+            }
+        }
+
+        if (headerIndex < 0)
+            throw new InvalidDataException(
+                "Excel dosyasında tanınan bir başlık satırı bulunamadı. " +
+                "En az 'Ürün Kodu' sütununu içeren bir başlık satırı gerekli.");
+
+        IXLRangeRow headerRow = rows[headerIndex];
         ColumnMap columns = ColumnResolver.Resolve(headerRow);
 
-        foreach (IXLRangeRow row in usedRange.RowsUsed().Skip(1))
+        // Ürün Kodu, arama/çakışma kontrolü gibi işlevlerin dayandığı çapa alandır;
+        // bulunamazsa dosya okunamadı sayılır (sessizce boş veri gösterilmez).
+        if (columns.UrunKodu == 0)
+            throw new InvalidDataException(
+                "'Ürün Kodu' sütunu bulunamadı. Bu sütun zorunlu olduğundan dosya okunamadı.");
+
+        IReadOnlyList<string> unmatchedHeaders = ColumnResolver.UnmatchedHeaders(headerRow);
+
+        var products = new List<Urun>();
+        foreach (IXLRangeRow row in rows.Skip(headerIndex + 1))
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -56,14 +85,14 @@ public sealed class ExcelReaderService
                 ParaBirimi = GetString(row, columns.ParaBirimi),
             };
 
-            // Tamamen boş satırları atla (kod ve birim yoksa).
+            // Tamamen boş satırları atla (Ürün Kodu ve birim yoksa).
             if (urun.UrunKodu.Length == 0 && urun.Birim.Length == 0)
                 continue;
 
-            result.Add(urun);
+            products.Add(urun);
         }
 
-        return result;
+        return new ExcelReadResult(products, columns, unmatchedHeaders);
     }
 
     private static string GetString(IXLRangeRow row, int column)
@@ -89,3 +118,13 @@ public sealed class ExcelReaderService
             : 0m;
     }
 }
+
+/// <summary>
+/// Bir Excel dosyasının okuma sonucu: okunan ürünler, hangi mantıksal kolonların
+/// gerçekten bulunduğu (<see cref="ColumnMap"/>; 0 = bulunamadı) ve bizim
+/// şemamıza uymayan (eşleşmeyen) Excel başlıkları.
+/// </summary>
+public sealed record ExcelReadResult(
+    List<Urun> Products,
+    ColumnMap Columns,
+    IReadOnlyList<string> UnmatchedHeaders);

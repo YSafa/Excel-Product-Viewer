@@ -25,3 +25,8 @@ C:\Projects\ExcelViewer\ExcelViewer\obj\Debug\net10.0-windows\ExcelViewer.pdb
 C:\Projects\ExcelViewer\ExcelViewer\obj\Debug\net10.0-windows\ExcelViewer.genruntimeconfig.cache
 C:\Projects\ExcelViewer\ExcelViewer\obj\Debug\net10.0-windows\ref\ExcelViewer.dll
 C:\Projects\ExcelViewer\ExcelViewer\obj\Debug\net10.0-windows\ExcelViewer.sourcelink.json
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.exe
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.deps.json
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.runtimeconfig.json
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.dll
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.pdb

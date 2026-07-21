@@ -27,6 +27,10 @@ public sealed class MainForm : Form
     private List<Urun>? _allProducts;
     private string? _currentFilePath;
 
+    // Yüklenen dosyada hangi mantıksal kolonların gerçekten bulunduğu (0 = yok).
+    // Grid'de bulunmayan kolonlar gizlenir.
+    private ColumnMap _currentColumns;
+
     // Kolon hizalama/genişlik ayarı yalnızca ilk veri bağlamada uygulanır;
     // sonrasında kullanıcının elle yaptığı genişlik değişiklikleri korunur.
     private bool _kolonlarAyarlandi;
@@ -199,17 +203,23 @@ public sealed class MainForm : Form
 
         _currentFilePath = dialog.FileName;
         _kolonlarAyarlandi = false; // Yeni dosyada kolon oranları yeniden uygulansın.
-        await LoadFileAsync(_currentFilePath);
+        await LoadFileAsync(_currentFilePath, ilkYukleme: true);
     }
 
-    private async Task LoadFileAsync(string filePath)
+    /// <summary>
+    /// Dosyayı okur ve tabloyu doldurur. <paramref name="ilkYukleme"/> yalnızca
+    /// kullanıcı dosyayı elle seçtiğinde true'dur; ekle/düzenle/sil sonrası
+    /// yenilemelerde (false) eksik sütun uyarısı tekrar gösterilmez.
+    /// </summary>
+    private async Task LoadFileAsync(string filePath, bool ilkYukleme = false)
     {
         SetBusy(true, "Yükleniyor...");
 
         try
         {
-            List<Urun> products = await _excelReader.ReadAsync(filePath);
-            _allProducts = products;
+            ExcelReadResult result = await _excelReader.ReadAsync(filePath);
+            _allProducts = result.Products;
+            _currentColumns = result.Columns; // Grid görünürlüğü için (ApplyFilter'dan önce).
 
             ApplyFilter();
 
@@ -218,7 +228,10 @@ public sealed class MainForm : Form
             _btnFiltre.Enabled = true;
             _btnSiralama.Enabled = true;
             _txtSearch.Clear();
-            _lblStatus.Text = $"{Path.GetFileName(filePath)} dosyasından {products.Count} ürün yüklendi.";
+            _lblStatus.Text = $"{Path.GetFileName(filePath)} dosyasından {result.Products.Count} ürün yüklendi.";
+
+            if (ilkYukleme)
+                EksikSutunUyarisiGoster(result);
         }
         catch (Exception ex)
         {
@@ -577,6 +590,10 @@ public sealed class MainForm : Form
 
     private void Grid_DataBindingComplete(object? sender, DataGridViewBindingCompleteEventArgs e)
     {
+        // Excel'de gerçekten bulunan kolonları göster, bulunmayanları gizle.
+        // Her bağlamada uygulanır (dosya değişince görünürlük güncellenmeli).
+        UygulaKolonGorunurluk();
+
         // Yalnızca ilk kez: hizalama ve başlangıç genişlik oranlarını uygula.
         // Sonraki bağlamalarda kullanıcının ayarladığı genişlikler korunur.
         if (_kolonlarAyarlandi)
@@ -605,6 +622,57 @@ public sealed class MainForm : Form
                 return;
             }
         }
+    }
+
+    /// <summary>
+    /// Excel'de bulunan kolonları görünür, bulunmayanları gizli yapar.
+    /// Tam kolonlu dosyalarda tüm kolonlar görünür kalır (eski davranış korunur).
+    /// </summary>
+    private void UygulaKolonGorunurluk()
+    {
+        SetColumnVisible(nameof(Urun.UrunKodu), _currentColumns.UrunKodu != 0);
+        SetColumnVisible(nameof(Urun.StokAdeti), _currentColumns.StokAdeti != 0);
+        SetColumnVisible(nameof(Urun.Birim), _currentColumns.Birim != 0);
+        SetColumnVisible(nameof(Urun.Fiyat), _currentColumns.Fiyat != 0);
+        SetColumnVisible(nameof(Urun.ParaBirimi), _currentColumns.ParaBirimi != 0);
+    }
+
+    private void SetColumnVisible(string propertyName, bool visible)
+    {
+        foreach (DataGridViewColumn column in _grid.Columns)
+        {
+            if (column.DataPropertyName == propertyName)
+            {
+                column.Visible = visible;
+                return;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Bizim 5 kolonumuzdan biri veya birkaçı Excel'de bulunamadıysa kullanıcıyı
+    /// bilgilendirir. Tam kolonlu dosyalarda hiçbir mesaj gösterilmez.
+    /// </summary>
+    private void EksikSutunUyarisiGoster(ExcelReadResult result)
+    {
+        // Ürün Kodu zorunludur; buraya gelindiğinde mutlaka bulunmuştur.
+        var eksik = new List<string>();
+        if (result.Columns.StokAdeti == 0) eksik.Add("Stok Adeti");
+        if (result.Columns.Birim == 0) eksik.Add("Birim");
+        if (result.Columns.Fiyat == 0) eksik.Add("Fiyat");
+        if (result.Columns.ParaBirimi == 0) eksik.Add("Para Birimi");
+
+        if (eksik.Count == 0)
+            return; // Tam kolonlu dosya: uyarı yok.
+
+        string eslesmeyen = result.UnmatchedHeaders.Count > 0
+            ? string.Join(", ", result.UnmatchedHeaders)
+            : "(eşleşmeyen sütun yok)";
+
+        MessageBox.Show(
+            this,
+            $"{string.Join(", ", eksik)} sütunları şunlarla eşleşmediği için eklenmemiştir: {eslesmeyen}",
+            "Eksik Sütunlar", MessageBoxButtons.OK, MessageBoxIcon.Information);
     }
 
     private void AlignColumnRight(string propertyName)
