@@ -45,8 +45,10 @@ public sealed class SiralamaPanel : Form
         BackColor = Color.White;
         Font = new Font("Segoe UI", 9F);
 
-        const int x = 16;
-        const int alanGenislik = 263; // Panel 5px büyüdü; iç alanlar da aynı oranda genişledi.
+        // Panel toplam genişliği (295px) sabit; iç alanlar 5px daraltıldı (263 -> 258)
+        // ve kalan kenar boşluğu iki yana simetrik dağıtıldı.
+        const int alanGenislik = 258;
+        int x = (ClientSize.Width - alanGenislik) / 2;
         int y = 14;
 
         // --- Alan ------------------------------------------------------------

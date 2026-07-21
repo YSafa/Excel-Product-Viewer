@@ -113,15 +113,6 @@ public sealed class AddProductForm : Form
         const int sagKenar = comboX + comboGenislik;  // Tüm alanların ortak sağ kenarı.
         const int solAlanGenislik = comboX - labelX - araBosluk;
 
-        // Kilitlenen (Enabled = false) combo'larda metin dikeyde kesik görünüyordu:
-        // Guna2ComboBox metni tüm yüksekliğe ortalayıp yalnızca sığdığında çiziyor.
-        // ItemHeight'i artırınca kontrol yükselir (Yükseklik = ItemHeight + 6),
-        // metne dikey nefes payı açılır. Yandaki 36px'lik metin kutularıyla
-        // ortalı dursun diye combo'lar 2px yukarıdan başlatılır.
-        const int comboItemHeight = 34;      // -> combo yüksekliği 40.
-        const int comboYukseklik = comboItemHeight + 6;
-        const int comboUstFark = (comboYukseklik - 36) / 2; // Metin kutusuyla ortalama.
-
         // --- 1. satır: Ürün Kodu (combo'ların sağ kenarıyla hizalı) ----------
         AddLabel("Ürün Kodu", labelX, y);
         _txtUrunKodu = new Guna2TextBox
@@ -130,6 +121,7 @@ public sealed class AddProductForm : Form
             Size = new Size(sagKenar - labelX, 36),
             BorderRadius = 6,
             Font = new Font("Segoe UI", 10F),
+            ForeColor = Color.Black, // Guna'nın soluk grisi yerine net siyah.
         };
         _txtUrunKodu.Leave += TxtUrunKodu_Leave;
         Controls.Add(_txtUrunKodu);
@@ -143,6 +135,7 @@ public sealed class AddProductForm : Form
             Size = new Size(solAlanGenislik, 36),
             BorderRadius = 6,
             Font = new Font("Segoe UI", 10F),
+            ForeColor = Color.Black,
         };
         // Stok girişi birime göre: "adet" ise tam sayı, diğer birimlerde ondalık.
         _txtStokAdeti.KeyPress += StokKeyPress;
@@ -151,12 +144,12 @@ public sealed class AddProductForm : Form
         AddLabel("Birim", comboX, y);
         _cmbBirim = new Guna2ComboBox
         {
-            Location = new Point(comboX, y + 24 - comboUstFark),
-            Size = new Size(comboGenislik, comboYukseklik),
-            ItemHeight = comboItemHeight,
+            Location = new Point(comboX, y + 24),
+            Size = new Size(comboGenislik, 36),
             BorderRadius = 6,
             DropDownStyle = ComboBoxStyle.DropDown, // Seçilebilir + yazılabilir.
             Font = new Font("Segoe UI", 10F),
+            ForeColor = Color.Black,
         };
         DoldurCombo(_cmbBirim, SabitBirimler, mevcutUrunler.Select(u => u.Birim));
         Controls.Add(_cmbBirim);
@@ -170,6 +163,7 @@ public sealed class AddProductForm : Form
             Size = new Size(solAlanGenislik, 36),
             BorderRadius = 6,
             Font = new Font("Segoe UI", 10F),
+            ForeColor = Color.Black,
         };
         // Sadece ondalık sayı: harf engelli, tek ondalık ayıraç serbest.
         _txtFiyat.KeyPress += OndalikKeyPress;
@@ -178,12 +172,12 @@ public sealed class AddProductForm : Form
         AddLabel("Para Birimi", comboX, y);
         _cmbParaBirimi = new Guna2ComboBox
         {
-            Location = new Point(comboX, y + 24 - comboUstFark),
-            Size = new Size(comboGenislik, comboYukseklik),
-            ItemHeight = comboItemHeight,
+            Location = new Point(comboX, y + 24),
+            Size = new Size(comboGenislik, 36),
             BorderRadius = 6,
             DropDownStyle = ComboBoxStyle.DropDown,
             Font = new Font("Segoe UI", 10F),
+            ForeColor = Color.Black,
         };
         DoldurCombo(_cmbParaBirimi, SabitParaBirimleri, mevcutUrunler.Select(u => u.ParaBirimi));
         Controls.Add(_cmbParaBirimi);

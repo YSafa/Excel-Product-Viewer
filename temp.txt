@@ -1,10 +1,3 @@
-Satır yüksekliği kilidi: AllowUserToResizeRows = false — kullanıcı satır sınırını sürükleyip yükseklik değiştiremesin, otomatik boyutlanma aynen kalsın.
-Ürün Ekle'de kilitli combo'larda metin kesikliği: Kod eşleşip Birim/Para Birimi otomatik dolup kilitlenince (Enabled = false) metnin üst/altı kesik görünüyor — dikey padding artırılsın.
-Sıralama paneli 5px daha sağa büyüsün (önceki 10px'in üstüne).
-Satır düzenleme + silme:
-Grid'de bir satıra çift tıklayınca (veya sağ tık menüsü) düzenleme formu açılsın — Ürün Ekle formunun aynısı ama alanlar seçilen satırın verisiyle dolu gelsin.
-Kaydet'e basınca mevcut satır Excel'de güncellensin (yeni satır eklenmesin).
-Silme için sağ tık → "Sil" → onay sorup satırı Excel'den kaldırsın.
-Her iki işlem de mevcut Log servisine zaman damgalı kayıt düşsün (DÜZENLEME, SİLME gibi).
-İşlem sonrası dosya baştan okunup tablo yenilensin (mevcut ürün ekleme akışıyla tutarlı).
-Dosya açıkken düzenleme/silme denenirse aynı "dosya kilitli" uyarısı ve form açık kalma davranışı uygulansın (ürün eklemede kurduğumuz mantığın aynısı).
+1) SiralamaPanel'de form/panel toplam genişliği (295px) sabit kalsın, ama içindeki combo'ların genişliği 5px azaltılsın. kenar boşluğu simetrik dağıtılsın
+2) Ürün Ekle ve Ürün Düzenle formlarındaki tüm Guna2TextBox'larda (Ürün Kodu, Stok Adeti, Fiyat) ForeColor açıkça Color.Black olarak ayarlansın; Guna'nın varsayılan soluk grisi kullanılmasın.
+3) Önceki ItemHeight değişikliği sorunu çözmedi, ekran görüntüsünde hâlâ aynı kesiklik var. ItemHeight yaklaşımını tekrarlama — bunun yerine Guna2ComboBox'ın disabled (Enabled=false) durumundaki metin dikey hizalamasına özel bak: Guna2ComboBox'ta normal ve disabled state'ler farklı çizim yolu kullanabiliyor (DisabledState özellik grubu olabilir). Kontrolün gerçek Font boyutuna göre yüksekliğin yeterli olup olmadığını hesapla, gerekirse Height'i doğrudan artır (ItemHeight üzerinden dolaylı değil). Değişiklikten sonra ekran görüntüsüyle doğrula, "derlendi" yeterli kanıt değil.
