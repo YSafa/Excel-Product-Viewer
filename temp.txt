@@ -1,17 +1,7 @@
-Hedef: Excel dosyasında bizim beklediğimiz 5 sabit kolonun (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi) hepsi bulunmayabilir. Uygulama artık sadece gerçekten bulunan kolonları okuyup göstersin; bulunmayanlar için sahte/boş veri üretmesin veya varmış gibi davranmasın.
+Hata: "Eksik Sütunlar" uyarı penceresinde mesajın ikinci kısmı yanlış çalışıyor. Örnek: "Birim, Fiyat, Para Birimi sütunları şunlarla eşleşmediği için eklenmemiştir: (eşleşmeyen sütun yok)" — halbuki gerçek dosyada Ürün Kodu ve Stok Adeti dışında bizim şemamızla hiç örtüşmeyen birçok başlık var (örn. RAF, TOTAL, haftalık sayı sütunları gibi). Mesajın ikinci kısmı bu eşleşmeyen Excel başlıklarını listelemeli ama boş/yanlış geliyor.
 
-1) Başlık satırı tespiti: Şu an ilk dolu satır her zaman başlık kabul ediliyor. Bunu değiştir: dosyanın ilk 10 satırı içinde, ColumnResolver'daki bilinen alias'lardan (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi ve onların Türkçe/İngilizce varyantları) en az birine tam eşleşen (içeren değil, birebir eşleşen) bir hücre barındıran ilk satırı başlık satırı olarak kabul et. Böylece başlık satırından önce logo, rapor başlığı, tarih gibi satırlar olsa da doğru satır bulunur.
+Kontrol edilmesi gereken: ColumnResolver.UnmatchedHeaders (veya bu bilgiyi hesaplayan metot) muhtemelen yanlış kümeyi hesaplıyor. Doğru mantık şu olmalı: Excel'deki başlık satırındaki tüm hücreleri gez, her biri için bizim bilinen alias listelerimizden (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi ve varyantları) herhangi birine eşleşip eşleşmediğine bak. Eşleşmeyenleri (boş hücreler hariç) bir listeye topla — işte "Excel'deki eşleşmeyen başlıklar" bu olmalı.
 
-2) Ürün Kodu bulunamama durumu: Eğer Ürün Kodu'na karşılık gelen kolon hiçbir alias ile eşleşmezse, dosya okunamadı sayılsın ve kullanıcıya net bir hata mesajı gösterilsin. Sessizce boş/yanlış veri gösterilmesin — Ürün Kodu, arama/çakışma kontrolü gibi işlevlerin dayandığı çapa alan olduğu için zorunlu kabul edilsin.
+Doğrulama: Bu değişikliği, hem tam 5 kolonlu bir dosyada (mesaj hiç çıkmamalı) hem de kısmi/kaydırılmış başlıklı bir dosyada (mesajın her iki tarafı da doğru dolmalı — hangi bizim kolonumuz eksik VE Excel'de hangi başlıklar bizim şemamızla eşleşmedi) test et.
 
-3) Model ve grid davranışı: Urun modelinin yapısı (5 sabit alan) değişmesin. Bulunamayan kolonlar zaten boş/0 okunuyor; bunu değiştirme. Bunun yerine, hangi kolonların Excel'de gerçekten bulunduğu bilgisi ana ekrandaki DataGridView'e taşınsın ve bulunmayan kolonlar grid'de gizlensin (Visible = false). Örneğin sadece Ürün Kodu ve bir kolon daha varsa, grid'de yalnızca o 2 kolon görünsün.
-
-Geriye dönük uyumluluk (kritik): Bu değişiklik, hâlâ 5 kolonu tam içeren normal Excel dosyalarında mevcut davranışı birebir korumalı — hiçbir kolon gizlenmemeli, başlık tespiti hâlâ doğru satırı (ilk satır) bulmalı. Değişiklik hem eski (tam kolonlu) hem yeni (kısmi kolonlu, örn. sadece Ürün Kodu + başka bir sütun içeren) bir dosyayla test edilsin.
-
-5) Kullanıcı uyarısı: Dosya yüklendiğinde, bizim 5 kolonumuzdan biri veya birden fazlası bulunamadıysa (RAF, TOTAL gibi bizim şemamızda olmayan kolonlar dahil, onlar zaten tamamen yok sayılsın), kullanıcıya bir bilgi/uyarı mesajı gösterilsin. Mesaj formatı:
-
-"[X] sütunları şunlarla eşleşmediği için eklenmemiştir: [bizdeki başlıklar]"
-
-Örnek: Eğer Excel'de Stok Adeti ve Fiyat kolonları yoksa, kullanıcıya "Stok Adeti, Fiyat sütunları şunlarla eşleşmediği için eklenmemiştir: [Excel'deki eşleşmeyen sütun başlıkları]" gibi bir mesaj gösterilsin. Bu mesaj dosya yüklendikten sonra durum çubuğunda (_lblStatus) veya bir bilgi kutusunda (MessageBox) gösterilebilir — hangisi daha az rahatsız ediciyse onu seç, ama sessizce geçilmesin.
-
-Bu turda YAPILMAYACAKLAR: Ürün Ekle/Düzenle formu, Filtre paneli, Sıralama paneli bu adımda değişmesin — hâlâ 5 sabit alan/seçenek gösterebilirler, kısmi kolonlu dosyalarda bu formların/panellerin davranışı ayrı bir sonraki adımda ele alınacak. Bu adımın kapsamı sadece: dosya okuma, başlık tespiti, ana ekran grid gösterimi ve kullanıcı uyarısıdır.
+Not: Bu, önceki adımda eklenen kolon gizleme/okuma mantığına dokunmuyor — o kısım doğrulandı ve doğru çalışıyor. Sadece uyarı mesajının metin/içerik hesaplama kısmı düzeltilecek.

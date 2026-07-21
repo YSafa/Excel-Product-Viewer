@@ -41,57 +41,81 @@ public static class ColumnResolver
 
             int index = cell.Address.ColumnNumber;
 
-            if (Matches(header, UrunKoduAliases)) urunKodu = index;
-            else if (Matches(header, StokAdetiAliases)) stokAdeti = index;
-            else if (Matches(header, BirimAliases)) birim = index;
-            else if (Matches(header, FiyatAliases)) fiyat = index;
-            else if (Matches(header, ParaBirimiAliases)) paraBirimi = index;
+            // İlk (soldaki) eşleşme kazanır: bir mantıksal kolon zaten
+            // bulunduysa, sonradan gelen ve geniş alias'lara çakışan bir başlık
+            // (örn. gerçek "Stok Adeti" varken "Total") onu ezmez; o başlık
+            // eşleşmeyen sütun olarak kalır. Her kolonun bir kez geçtiği normal
+            // dosyalarda davranış değişmez.
+            if (urunKodu == 0 && Matches(header, UrunKoduAliases)) urunKodu = index;
+            else if (stokAdeti == 0 && Matches(header, StokAdetiAliases)) stokAdeti = index;
+            else if (birim == 0 && Matches(header, BirimAliases)) birim = index;
+            else if (fiyat == 0 && Matches(header, FiyatAliases)) fiyat = index;
+            else if (paraBirimi == 0 && Matches(header, ParaBirimiAliases)) paraBirimi = index;
         }
 
         return new ColumnMap(urunKodu, stokAdeti, birim, fiyat, paraBirimi);
     }
 
     /// <summary>
-    /// Verilen başlık metni, bilinen kolon adlarından herhangi birine birebir
-    /// eşleşiyorsa true döner (büyük/küçük harf duyarsız).
+    /// Bir satırın kaç mantıksal kolona eşlendiğini döndürür (0-5). Başlık
+    /// satırını tespit ederken kullanılır: en çok kolona eşlenen satır başlıktır.
+    /// Böylece başlıktan önceki özet/başlık satırlarında tek bir alias'a uyan
+    /// hücre (örn. "Model", "Total") bulunsa bile gerçek başlık satırı seçilir.
     /// </summary>
-    public static bool IsKnownHeader(string header)
+    public static int EslesenKolonSayisi(ColumnMap map)
     {
-        return Matches(header, UrunKoduAliases)
-            || Matches(header, StokAdetiAliases)
-            || Matches(header, BirimAliases)
-            || Matches(header, FiyatAliases)
-            || Matches(header, ParaBirimiAliases);
+        int sayi = 0;
+        if (map.UrunKodu != 0) sayi++;
+        if (map.StokAdeti != 0) sayi++;
+        if (map.Birim != 0) sayi++;
+        if (map.Fiyat != 0) sayi++;
+        if (map.ParaBirimi != 0) sayi++;
+        return sayi;
     }
 
     /// <summary>
-    /// Satır, bilinen bir kolon adına birebir eşleşen en az bir hücre içeriyor mu?
-    /// Başlık satırını tespit etmek için kullanılır (logo/tarih gibi satırları eler).
+    /// Satırdaki dolu (boş olmayan) hücre sayısı. Başlık tespitinde eşitlik
+    /// bozucu olarak kullanılır: aynı sayıda kolona eşlenen iki satırdan daha
+    /// geniş olanı (gerçek başlık) tercih edilir; böylece üstteki dar özet
+    /// satırları elenir.
     /// </summary>
-    public static bool RowHasKnownHeader(IXLRangeRow row)
+    public static int DoluBaslikSayisi(IXLRangeRow row)
     {
+        int sayi = 0;
         foreach (IXLCell cell in row.Cells())
         {
-            string header = cell.GetString().Trim();
-            if (header.Length > 0 && IsKnownHeader(header))
-                return true;
+            if (cell.GetString().Trim().Length > 0)
+                sayi++;
         }
 
-        return false;
+        return sayi;
     }
 
     /// <summary>
-    /// Başlık satırındaki, bizim 5 kolonumuzdan hiçbirine eşleşmeyen sütun
-    /// başlıkları (örn. RAF, TOTAL). Kullanıcı uyarısında gösterilir.
+    /// Başlık satırındaki, bizim 5 kolonumuzdan hiçbirine ATANMAMIŞ sütun
+    /// başlıkları (örn. RAF, TOTAL, haftalık sayı sütunları). Kullanıcı
+    /// uyarısında gösterilir.
+    ///
+    /// Not: Alias'a uyup uymadığına değil, gerçekte hangi kolon konumlarının
+    /// <paramref name="columns"/> içinde kullanıldığına bakılır. Böylece geniş
+    /// alias'lara (örn. "Total") çakışan ama şemamıza atanmayan bir başlık da
+    /// doğru şekilde "eşleşmeyen" olarak listelenir.
     /// </summary>
-    public static List<string> UnmatchedHeaders(IXLRangeRow headerRow)
+    public static List<string> UnmatchedHeaders(IXLRangeRow headerRow, ColumnMap columns)
     {
-        var unmatched = new List<string>();
+        var atananKonumlar = new HashSet<int>
+        {
+            columns.UrunKodu, columns.StokAdeti, columns.Birim, columns.Fiyat, columns.ParaBirimi,
+        };
 
+        var unmatched = new List<string>();
         foreach (IXLCell cell in headerRow.Cells())
         {
             string header = cell.GetString().Trim();
-            if (header.Length > 0 && !IsKnownHeader(header))
+            if (header.Length == 0)
+                continue;
+
+            if (!atananKonumlar.Contains(cell.Address.ColumnNumber))
                 unmatched.Add(header);
         }
 

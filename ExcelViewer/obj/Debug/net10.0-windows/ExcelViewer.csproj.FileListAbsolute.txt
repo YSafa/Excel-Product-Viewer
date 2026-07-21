@@ -30,3 +30,8 @@ C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.deps.json
 C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.runtimeconfig.json
 C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.dll
 C:\Users\stajyer3\AppData\Local\Temp\ev_build_check\ExcelViewer.pdb
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check2\ExcelViewer.exe
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check2\ExcelViewer.deps.json
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check2\ExcelViewer.runtimeconfig.json
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check2\ExcelViewer.dll
+C:\Users\stajyer3\AppData\Local\Temp\ev_build_check2\ExcelViewer.pdb

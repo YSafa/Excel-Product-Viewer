@@ -41,17 +41,32 @@ public sealed class ExcelReaderService
         if (usedRange == null)
             throw new InvalidDataException("Excel sayfası boş; okunacak veri bulunamadı.");
 
-        // Başlık satırını tespit et: ilk 10 dolu satır içinde, bilinen bir kolon
-        // adına birebir eşleşen hücre barındıran ilk satır başlık kabul edilir.
+        // Başlık satırını tespit et: ilk 10 dolu satır içinde, EN ÇOK mantıksal
+        // kolona eşlenen satır başlık kabul edilir. Böylece başlıktan önce logo,
+        // rapor başlığı, tarih veya "Model/Total" gibi tek bir alias'a çakışan
+        // özet satırları olsa da doğru (en zengin) başlık satırı seçilir.
         List<IXLRangeRow> rows = usedRange.RowsUsed().ToList();
         int headerIndex = -1;
+        int enIyiSkor = 0;
+        int enIyiGenislik = 0;
+        ColumnMap columns = default;
         int scanLimit = Math.Min(HeaderScanRows, rows.Count);
         for (int i = 0; i < scanLimit; i++)
         {
-            if (ColumnResolver.RowHasKnownHeader(rows[i]))
+            ColumnMap aday = ColumnResolver.Resolve(rows[i]);
+            int skor = ColumnResolver.EslesenKolonSayisi(aday);
+            if (skor == 0)
+                continue;
+
+            // Önce en çok kolona eşlenen; eşitlikte daha geniş (daha çok dolu
+            // hücreli) satır — gerçek başlık, üstteki dar özet satırını yener.
+            int genislik = ColumnResolver.DoluBaslikSayisi(rows[i]);
+            if (skor > enIyiSkor || (skor == enIyiSkor && genislik > enIyiGenislik))
             {
+                enIyiSkor = skor;
+                enIyiGenislik = genislik;
                 headerIndex = i;
-                break;
+                columns = aday;
             }
         }
 
@@ -61,7 +76,6 @@ public sealed class ExcelReaderService
                 "En az 'Ürün Kodu' sütununu içeren bir başlık satırı gerekli.");
 
         IXLRangeRow headerRow = rows[headerIndex];
-        ColumnMap columns = ColumnResolver.Resolve(headerRow);
 
         // Ürün Kodu, arama/çakışma kontrolü gibi işlevlerin dayandığı çapa alandır;
         // bulunamazsa dosya okunamadı sayılır (sessizce boş veri gösterilmez).
@@ -69,7 +83,7 @@ public sealed class ExcelReaderService
             throw new InvalidDataException(
                 "'Ürün Kodu' sütunu bulunamadı. Bu sütun zorunlu olduğundan dosya okunamadı.");
 
-        IReadOnlyList<string> unmatchedHeaders = ColumnResolver.UnmatchedHeaders(headerRow);
+        IReadOnlyList<string> unmatchedHeaders = ColumnResolver.UnmatchedHeaders(headerRow, columns);
 
         var products = new List<Urun>();
         foreach (IXLRangeRow row in rows.Skip(headerIndex + 1))
