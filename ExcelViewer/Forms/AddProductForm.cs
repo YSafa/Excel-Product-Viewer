@@ -5,11 +5,15 @@ using Guna.UI2.WinForms;
 namespace ExcelViewer.Forms;
 
 /// <summary>
-/// Yeni ürün bilgilerini toplayan diyalog.
+/// Ürün bilgilerini toplayan diyalog. İki modda çalışır:
+/// <list type="bullet">
+/// <item>Ekleme: boş form; girilen kod mevcut bir ürüne aitse Birim ve Para
+/// Birimi otomatik doldurulup kilitlenir.</item>
+/// <item>Düzenleme: alanlar seçilen satırın verisiyle dolu gelir; Kaydet
+/// mevcut satırı günceller, yeni satır eklemez. Otomatik kilit uygulanmaz.</item>
+/// </list>
 /// Düzen: 1. satır Ürün Kodu, 2. satır Stok Adeti + Birim combo,
 /// 3. satır Fiyat + Para Birimi combo.
-/// Girilen kod mevcut bir ürüne aitse Birim ve Para Birimi otomatik doldurulur
-/// ve kilitlenir; kod temizlenince veya değişince kilit açılır.
 /// Combo'lar Excel'deki değerler + sabit çekirdek listeyle beslenir ve
 /// kullanıcı yeni değer de yazabilir.
 /// </summary>
@@ -34,11 +38,12 @@ public sealed class AddProductForm : Form
     // Kod mevcut bir ürünle eşleştiğinde true; combo'lar kilitlenir.
     private bool _mevcutUrunKilidi;
 
-    // Kaydet'e basıldığında çağrılan kaydetme işlevi. Form kapanmadan önce
-    // çalışır; true dönerse form kapanır, false dönerse (ör. dosya açık) form
+    // Kaydet'e basıldığında çağrılan işlev (ekleme veya güncelleme). Form kapanmadan
+    // önce çalışır; true dönerse form kapanır, false dönerse (ör. dosya açık) form
     // açık kalır ve kullanıcının girdiği bilgiler korunur.
     private readonly Func<Urun, Task<bool>> _kaydet;
 
+    /// <summary>Yeni ürün ekleme modu.</summary>
     public AddProductForm(IReadOnlyList<Urun> mevcutUrunler, Func<Urun, Task<bool>> kaydet)
     {
         ArgumentNullException.ThrowIfNull(mevcutUrunler);
@@ -56,6 +61,34 @@ public sealed class AddProductForm : Form
 
         BuildUi(mevcutUrunler);
     }
+
+    /// <summary>
+    /// Mevcut bir ürünü düzenleme modu. Alanlar <paramref name="duzenlenecek"/>
+    /// verisiyle dolu gelir; Kaydet'e basılınca <paramref name="guncelle"/> çağrılır.
+    /// </summary>
+    public AddProductForm(
+        IReadOnlyList<Urun> mevcutUrunler, Urun duzenlenecek, Func<Urun, Task<bool>> guncelle)
+        : this(mevcutUrunler, guncelle)
+    {
+        ArgumentNullException.ThrowIfNull(duzenlenecek);
+
+        // Düzenlemede kodu değiştirmek meşru; otomatik doldur/kilit devre dışı.
+        _txtUrunKodu.Leave -= TxtUrunKodu_Leave;
+
+        Text = "Ürünü Düzenle";
+        _lblBilgi.Text = "Mevcut ürün düzenleniyor.";
+        _lblBilgi.ForeColor = Color.FromArgb(60, 60, 70);
+
+        _txtUrunKodu.Text = duzenlenecek.UrunKodu;
+        _txtStokAdeti.Text = SayiBicim(duzenlenecek.StokAdeti);
+        _cmbBirim.Text = duzenlenecek.Birim;
+        _txtFiyat.Text = SayiBicim(duzenlenecek.Fiyat);
+        _cmbParaBirimi.Text = duzenlenecek.ParaBirimi;
+    }
+
+    /// <summary>Decimal'i düzenleme kutusuna basmak için kültürden bağımsız biçimler.</summary>
+    private static string SayiBicim(decimal deger) =>
+        deger.ToString(CultureInfo.InvariantCulture);
 
     private void BuildUi(IReadOnlyList<Urun> mevcutUrunler)
     {
@@ -79,6 +112,15 @@ public sealed class AddProductForm : Form
         const int comboX = labelX + 304;              // Sağ blok başlangıcı.
         const int sagKenar = comboX + comboGenislik;  // Tüm alanların ortak sağ kenarı.
         const int solAlanGenislik = comboX - labelX - araBosluk;
+
+        // Kilitlenen (Enabled = false) combo'larda metin dikeyde kesik görünüyordu:
+        // Guna2ComboBox metni tüm yüksekliğe ortalayıp yalnızca sığdığında çiziyor.
+        // ItemHeight'i artırınca kontrol yükselir (Yükseklik = ItemHeight + 6),
+        // metne dikey nefes payı açılır. Yandaki 36px'lik metin kutularıyla
+        // ortalı dursun diye combo'lar 2px yukarıdan başlatılır.
+        const int comboItemHeight = 34;      // -> combo yüksekliği 40.
+        const int comboYukseklik = comboItemHeight + 6;
+        const int comboUstFark = (comboYukseklik - 36) / 2; // Metin kutusuyla ortalama.
 
         // --- 1. satır: Ürün Kodu (combo'ların sağ kenarıyla hizalı) ----------
         AddLabel("Ürün Kodu", labelX, y);
@@ -109,8 +151,9 @@ public sealed class AddProductForm : Form
         AddLabel("Birim", comboX, y);
         _cmbBirim = new Guna2ComboBox
         {
-            Location = new Point(comboX, y + 24),
-            Size = new Size(comboGenislik, 36),
+            Location = new Point(comboX, y + 24 - comboUstFark),
+            Size = new Size(comboGenislik, comboYukseklik),
+            ItemHeight = comboItemHeight,
             BorderRadius = 6,
             DropDownStyle = ComboBoxStyle.DropDown, // Seçilebilir + yazılabilir.
             Font = new Font("Segoe UI", 10F),
@@ -135,8 +178,9 @@ public sealed class AddProductForm : Form
         AddLabel("Para Birimi", comboX, y);
         _cmbParaBirimi = new Guna2ComboBox
         {
-            Location = new Point(comboX, y + 24),
-            Size = new Size(comboGenislik, 36),
+            Location = new Point(comboX, y + 24 - comboUstFark),
+            Size = new Size(comboGenislik, comboYukseklik),
+            ItemHeight = comboItemHeight,
             BorderRadius = 6,
             DropDownStyle = ComboBoxStyle.DropDown,
             Font = new Font("Segoe UI", 10F),

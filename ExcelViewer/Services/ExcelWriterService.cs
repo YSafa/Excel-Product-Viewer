@@ -109,6 +109,130 @@ public sealed class ExcelWriterService
         return YazmaSonucu.Eklendi;
     }
 
+    /// <summary>
+    /// <paramref name="orijinalKod"/> ile bulunan mevcut satırı, <paramref name="urun"/>
+    /// içindeki değerlerle (kod dâhil) günceller. Yeni satır eklemez.
+    /// </summary>
+    /// <remarks>Bloklayan I/O arka plan thread'inde çalışır.</remarks>
+    public Task<YazmaSonucu> UrunGuncelleAsync(
+        string filePath,
+        string orijinalKod,
+        Urun urun,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(urun);
+        if (string.IsNullOrWhiteSpace(filePath))
+            throw new ArgumentException("Dosya yolu boş olamaz.", nameof(filePath));
+        if (string.IsNullOrWhiteSpace(orijinalKod))
+            throw new ArgumentException("Orijinal ürün kodu boş olamaz.", nameof(orijinalKod));
+
+        return Task.Run(
+            () => UrunGuncelle(filePath, orijinalKod, urun, cancellationToken), cancellationToken);
+    }
+
+    private YazmaSonucu UrunGuncelle(
+        string filePath, string orijinalKod, Urun urun, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException("Excel dosyası bulunamadı.", filePath);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var workbook = new XLWorkbook(filePath);
+        IXLWorksheet worksheet = workbook.Worksheets.First();
+
+        IXLRange? usedRange = worksheet.RangeUsed();
+        if (usedRange == null)
+            throw new InvalidOperationException("Excel sayfası boş; başlık satırı bulunamadı.");
+
+        ColumnMap columns = ColumnResolver.Resolve(usedRange.FirstRow());
+        if (columns.UrunKodu == 0)
+            throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
+
+        IXLRangeRow? satir = FindRowByCode(usedRange, columns.UrunKodu, orijinalKod);
+        if (satir == null)
+            throw new InvalidOperationException(
+                $"Güncellenecek ürün bulunamadı: {orijinalKod}. Dosya değişmiş olabilir.");
+
+        WriteString(satir, columns.UrunKodu, urun.UrunKodu);
+        WriteDecimal(satir, columns.StokAdeti, urun.StokAdeti);
+        WriteString(satir, columns.Birim, urun.Birim);
+        WriteDecimal(satir, columns.Fiyat, urun.Fiyat);
+        WriteString(satir, columns.ParaBirimi, urun.ParaBirimi);
+
+        workbook.Save();
+
+        string kodBilgisi = orijinalKod.Equals(urun.UrunKodu, StringComparison.OrdinalIgnoreCase)
+            ? $"Kod={urun.UrunKodu}"
+            : $"Kod={orijinalKod} -> {urun.UrunKodu}";
+
+        _logService.Append(filePath,
+            $"DÜZENLEME | {kodBilgisi} | " +
+            $"Stok={urun.StokAdeti.ToString(CultureInfo.InvariantCulture)} | " +
+            $"Birim={urun.Birim} | Fiyat={urun.Fiyat.ToString(CultureInfo.InvariantCulture)} | " +
+            $"ParaBirimi={urun.ParaBirimi}");
+
+        return YazmaSonucu.Guncellendi;
+    }
+
+    /// <summary>
+    /// <paramref name="kod"/> ile bulunan satırı dosyadan siler. Silinecek satır
+    /// bulunursa true, bulunamazsa false döner.
+    /// </summary>
+    /// <remarks>Bloklayan I/O arka plan thread'inde çalışır.</remarks>
+    public Task<bool> UrunSilAsync(
+        string filePath, string kod, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            throw new ArgumentException("Dosya yolu boş olamaz.", nameof(filePath));
+        if (string.IsNullOrWhiteSpace(kod))
+            throw new ArgumentException("Ürün kodu boş olamaz.", nameof(kod));
+
+        return Task.Run(() => UrunSil(filePath, kod, cancellationToken), cancellationToken);
+    }
+
+    private bool UrunSil(string filePath, string kod, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(filePath))
+            throw new FileNotFoundException("Excel dosyası bulunamadı.", filePath);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var workbook = new XLWorkbook(filePath);
+        IXLWorksheet worksheet = workbook.Worksheets.First();
+
+        IXLRange? usedRange = worksheet.RangeUsed();
+        if (usedRange == null)
+            return false;
+
+        ColumnMap columns = ColumnResolver.Resolve(usedRange.FirstRow());
+        if (columns.UrunKodu == 0)
+            throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
+
+        IXLRangeRow? satir = FindRowByCode(usedRange, columns.UrunKodu, kod);
+        if (satir == null)
+            return false;
+
+        // Log için satır bilgisini silmeden önce oku.
+        decimal stok = ReadDecimal(satir, columns.StokAdeti);
+        string birim = columns.Birim == 0 ? string.Empty : satir.Cell(columns.Birim).GetString().Trim();
+        decimal fiyat = ReadDecimal(satir, columns.Fiyat);
+        string paraBirimi =
+            columns.ParaBirimi == 0 ? string.Empty : satir.Cell(columns.ParaBirimi).GetString().Trim();
+
+        // Tüm satırı sil; alttaki satırlar yukarı kayar.
+        satir.WorksheetRow().Delete();
+        workbook.Save();
+
+        _logService.Append(filePath,
+            $"SİLME | Kod={kod} | " +
+            $"Stok={stok.ToString(CultureInfo.InvariantCulture)} | " +
+            $"Birim={birim} | Fiyat={fiyat.ToString(CultureInfo.InvariantCulture)} | " +
+            $"ParaBirimi={paraBirimi}");
+
+        return true;
+    }
+
     private static IXLRangeRow? FindRowByCode(IXLRange usedRange, int kodColumn, string kod)
     {
         string aranan = kod.Trim();

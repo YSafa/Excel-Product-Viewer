@@ -146,6 +146,7 @@ public sealed class MainForm : Form
             Dock = DockStyle.Fill,
             AllowUserToAddRows = false,
             AllowUserToDeleteRows = false,
+            AllowUserToResizeRows = false, // Satır yüksekliği kilidi; otomatik boyutlanma korunur.
             ReadOnly = true,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill,
             SelectionMode = DataGridViewSelectionMode.FullRowSelect,
@@ -156,6 +157,9 @@ public sealed class MainForm : Form
         };
         StyleGrid(_grid);
         _grid.DataBindingComplete += Grid_DataBindingComplete;
+        _grid.CellDoubleClick += Grid_CellDoubleClick;
+        _grid.CellMouseDown += Grid_CellMouseDown;
+        _grid.ContextMenuStrip = BuildSatirMenusu();
 
         Controls.Add(_grid);
         Controls.Add(topPanel);
@@ -246,6 +250,74 @@ public sealed class MainForm : Form
         using var dialog = new AddProductForm(_allProducts, UrunKaydetAsync);
         dialog.ShowDialog(this);
         // Kaydetme başarılıysa UrunKaydetAsync içinde dosya yeniden okundu.
+    }
+
+    /// <summary>Grid satırına sağ tık menüsü: Düzenle / Sil.</summary>
+    private ContextMenuStrip BuildSatirMenusu()
+    {
+        var menu = new ContextMenuStrip();
+        var duzenle = new ToolStripMenuItem("Düzenle", null, (_, _) => SeciliUrunuDuzenle());
+        var sil = new ToolStripMenuItem("Sil", null, (_, _) => SeciliUrunuSil());
+        menu.Items.Add(duzenle);
+        menu.Items.Add(sil);
+
+        // Menü yalnızca gerçek bir satır seçiliyken açılsın.
+        menu.Opening += (_, e) =>
+        {
+            bool satirVar = SeciliUrun() != null;
+            duzenle.Enabled = satirVar;
+            sil.Enabled = satirVar;
+            if (!satirVar)
+                e.Cancel = true;
+        };
+
+        return menu;
+    }
+
+    private void Grid_CellDoubleClick(object? sender, DataGridViewCellEventArgs e)
+    {
+        if (e.RowIndex < 0) // Başlık satırına çift tıklama yok sayılır.
+            return;
+
+        SeciliUrunuDuzenle();
+    }
+
+    private void Grid_CellMouseDown(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        // Sağ tıklanan satır menü açılmadan önce seçili hale gelsin.
+        if (e.Button == MouseButtons.Right && e.RowIndex >= 0)
+            _grid.CurrentCell = _grid.Rows[e.RowIndex].Cells[Math.Max(e.ColumnIndex, 0)];
+    }
+
+    private Urun? SeciliUrun() => _grid.CurrentRow?.DataBoundItem as Urun;
+
+    private void SeciliUrunuDuzenle()
+    {
+        Urun? secili = SeciliUrun();
+        if (secili == null || _currentFilePath == null || _allProducts == null)
+            return;
+
+        // Düzenleme formu, seçilen satırın verisiyle dolu açılır; Kaydet mevcut
+        // satırı günceller (yeni satır eklemez).
+        using var dialog = new AddProductForm(
+            _allProducts, secili, yeni => UrunGuncelleAsync(secili, yeni));
+        dialog.ShowDialog(this);
+    }
+
+    private async void SeciliUrunuSil()
+    {
+        Urun? secili = SeciliUrun();
+        if (secili == null || _currentFilePath == null)
+            return;
+
+        DialogResult onay = MessageBox.Show(
+            this,
+            $"'{secili.UrunKodu}' ürünü Excel dosyasından silinecek." + Environment.NewLine +
+            "Bu işlem geri alınamaz. Devam edilsin mi?",
+            "Ürünü Sil", MessageBoxButtons.YesNo, MessageBoxIcon.Warning);
+
+        if (onay == DialogResult.Yes)
+            await UrunSilAsync(secili);
     }
 
     private void BtnFiltre_Click(object? sender, EventArgs e)
@@ -382,6 +454,95 @@ public sealed class MainForm : Form
                 "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
             _lblStatus.Text = "Kaydedilemedi.";
             return false;
+        }
+        finally
+        {
+            SetBusy(false, null);
+        }
+    }
+
+    /// <summary>
+    /// Düzenlenen ürünü Excel'de günceller. Başarılıysa true (form kapanır);
+    /// dosya açıksa false (form açık kalır) — ürün eklemedeki mantığın aynısı.
+    /// AddProductForm tarafından callback olarak çağrılır.
+    /// </summary>
+    private async Task<bool> UrunGuncelleAsync(Urun orijinal, Urun yeni)
+    {
+        if (_currentFilePath == null)
+            return false;
+
+        SetBusy(true, "Güncelleniyor...");
+
+        try
+        {
+            await _excelWriter.UrunGuncelleAsync(_currentFilePath, orijinal.UrunKodu, yeni);
+
+            await LoadFileAsync(_currentFilePath);
+
+            _lblStatus.Text = $"'{yeni.UrunKodu}' güncellendi.";
+            return true;
+        }
+        catch (IOException)
+        {
+            MessageBox.Show(
+                this,
+                "Excel dosyası şu anda açık görünüyor. Lütfen dosyayı kapatıp tekrar 'Kaydet'e basın." +
+                Environment.NewLine + "Girdiğiniz bilgiler korundu.",
+                "Dosya Kilitli", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _lblStatus.Text = "Güncellenemedi: dosya açık.";
+            return false; // Form açık kalsın.
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Ürün güncellenemedi:{Environment.NewLine}{ex.Message}",
+                "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _lblStatus.Text = "Güncellenemedi.";
+            return false;
+        }
+        finally
+        {
+            SetBusy(false, null);
+        }
+    }
+
+    /// <summary>
+    /// Seçili ürünü Excel'den siler. Dosya açıksa "dosya kilitli" uyarısı gösterilir;
+    /// işlem sonrası dosya yeniden okunup tablo yenilenir.
+    /// </summary>
+    private async Task UrunSilAsync(Urun urun)
+    {
+        if (_currentFilePath == null)
+            return;
+
+        SetBusy(true, "Siliniyor...");
+
+        try
+        {
+            bool silindi = await _excelWriter.UrunSilAsync(_currentFilePath, urun.UrunKodu);
+
+            await LoadFileAsync(_currentFilePath);
+
+            _lblStatus.Text = silindi
+                ? $"'{urun.UrunKodu}' silindi."
+                : $"'{urun.UrunKodu}' bulunamadı; dosya değişmiş olabilir.";
+        }
+        catch (IOException)
+        {
+            MessageBox.Show(
+                this,
+                "Excel dosyası şu anda açık görünüyor. Lütfen dosyayı kapatıp 'Sil' işlemini tekrar deneyin.",
+                "Dosya Kilitli", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _lblStatus.Text = "Silinemedi: dosya açık.";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Ürün silinemedi:{Environment.NewLine}{ex.Message}",
+                "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _lblStatus.Text = "Silinemedi.";
         }
         finally
         {

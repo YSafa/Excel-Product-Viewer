@@ -38,14 +38,15 @@ public sealed class SiralamaPanel : Form
     {
         Text = "Sıralama";
         // Yükseklik iki combo + iki başlık + buton + boşlukları tam saracak şekilde.
-        Size = new Size(290, 250);
+        // Genişlik önceki 290'a (10px büyütülmüştü) 5px daha eklenerek 295'e çıkarıldı.
+        Size = new Size(295, 250);
         FormBorderStyle = FormBorderStyle.FixedToolWindow;
         StartPosition = FormStartPosition.Manual;
         BackColor = Color.White;
         Font = new Font("Segoe UI", 9F);
 
         const int x = 16;
-        const int alanGenislik = 258;
+        const int alanGenislik = 263; // Panel 5px büyüdü; iç alanlar da aynı oranda genişledi.
         int y = 14;
 
         // --- Alan ------------------------------------------------------------
