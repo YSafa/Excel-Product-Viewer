@@ -1,31 +1,22 @@
-Hedef: "Dosya" menüsündeki "Birleştir" seçeneği işlevsel hale getirilsin. Kullanıcı, o an açık olan dosya (A) ile başka bir Excel dosyasını (B) seçip birleştirebilsin: A'daki ürünlerin eksik kolonları B'den doldurulsun, B'de olup A'da olmayan ürünler yeni satır olarak eklensin. Sonuç, yeni bir dosyaya yazılsın; A ve B dosyalarına dokunulmasın.
+temp.txt:
 
-1) Tetikleme: "Dosya" menüsündeki "Birleştir" artık aktif olsun (sadece bir dosya açıkken etkin). Tıklanınca OpenFileDialog ile B dosyası seçilsin.
+1) Stok Adeti ve Fiyat negatif olamaz
 
-2) B'nin okunması: B dosyası, A ile aynı gelişmiş mantıkla okunsun — ColumnResolver'daki ortak başlık tespiti (ilk 10 satırda en zengin satır) ve esnek eşleştirme (tam eşleşme + substring fallback + çoklu-anahtar çakışma çözümü) kullanılsın. B'de Ürün Kodu bulunamazsa işlem iptal edilip kullanıcı bilgilendirilsin.
+Şu an hem doğrudan girişte hem de +/- ifade hesaplamasında negatif değerlere izin veriliyor. Bu engellensin:
 
-3) Eşleştirme anahtarı: Ürün Kodu, trim + case-insensitive (OrdinalIgnoreCase) karşılaştırılsın — mevcut çakışma kontrolündeki mantıkla tutarlı olsun.
+Kaydet anında: Stok Adeti veya Fiyat 0'ın altındaysa, kayıt engellensin ve kullanıcıya net bir uyarı gösterilsin (örn. "Stok Adeti negatif olamaz." / "Fiyat negatif olamaz.").
+İfade hesaplamasında (Leave olayında 120-200 gibi bir ifade negatif sonuç verirse): sonuç alana yazılmadan önce kontrol edilsin, negatifse kullanıcıya uyarı gösterilsin ve alan ya önceki haliyle kalsın.
+Bu kural hem Ürün Ekle hem Ürün Düzenle formunda geçerli olsun.
 
-4) Kolon çakışması — kullanıcıya sorulsun: A ve B'nin şemaları karşılaştırılsın (hangi kolonlar hangisinde var). Eğer bir kolon hem A'da hem B'de varsa (örn. ikisinde de Stok Adeti), birleştirme işlemi başlamadan önce kullanıcıya bir diyalog gösterilsin. Bu diyalog:
+2) Filtre ve Sıralama butonları kayboldu — regresyon
 
-Çakışan her kolon için ayrı ayrı (satır satır değil, kolon başına bir kerelik) bir seçim sunsun: "A'yı kullan" veya "B'yi kullan".
-Eğer çakışan kolon Stok Adeti ise, ek olarak "Topla (A + B)" seçeneği de bulunsun.
-Varsayılan seçim "A'yı kullan" olsun.
-Bu diyalog, mevcut FiltrePanel/SiralamaPanel gibi ayrı bir Form olarak kurulabilir (aynı görsel dil, Guna2Button/ComboBox kullanımı).
-Kullanıcı "İptal" derse birleştirme işlemi tamamen durdurulsun, hiçbir dosya oluşturulmasın.
+Önceki turdaki dinamik boyutlandırma değişikliğinden (Filtre/Sıralama'ya Anchor = Top | Right verilmesi) sonra bu iki buton artık hiç görünmüyor. Muhtemelen Anchor ayarlandığı sırada butonların konumu, pencerenin o anki genişliğine göre yanlış hesaplanıp görünür alanın dışına taşmış olabilir (veya topPanel'in genişliği form ile senkron değil). Bu bir hata, düzeltilsin:
 
-5) Birleştirme mantığı:
+_btnFiltre ve _btnSiralama'nın Location değerleri, Anchor ayarlandıktan sonra da pencere varsayılan boyutunda (960px genişlik) görünür alan içinde kalacak şekilde yeniden hesaplansın/doğrulansın.
+Düzeltme sonrası pencere varsayılan boyutunda açıldığında iki butonun da görünür ve tıklanabilir olduğu doğrulansın.
 
-A'daki her ürün için: Ürün Kodu B'de eşleşiyorsa, A'da hiç olmayan kolonlar B'den doldurulsun. Çakışan kolonlar için 4. maddedeki kullanıcı kararı uygulansın (A değeri / B değeri / toplam — sadece Stok Adeti için toplam).
-B'de olup A'da hiç bulunamayan Ürün Kodu'na sahip satırlar, yeni satır olarak sona eklensin. Bu yeni satırlarda A'nın sahip olmadığı ama B'nin sahip olduğu alanlar doldurulsun, hiçbirinde bilgi yoksa boş kalsın.
-Çıktı, standart Türkçe başlıklarla (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi) ve sabit kolon sırasıyla yazılsın (mevcut ExcelExportService mantığıyla tutarlı, mümkünse aynı servis genişletilerek kullanılsın).
+3) İptal uyarısı — MessageBox olarak gösterilsin
 
-6) Kaydetme: Birleştirme tamamlandıktan sonra SaveFileDialog ile kullanıcı konum/isim seçsin. Varsayılan dosya adı örn. "Urunler_Birlesim_yyyyMMdd_HHmm.xlsx".
+Birleştirme çakışma diyaloğunda "İptal" seçilince şu an sadece durum çubuğunda (_lblStatus, ekranın sol alt köşesi) "Birleştirme iptal edildi." yazıyor. Bu yeterince görünür değil. Bunun yerine (veya buna ek olarak) bir MessageBox ile kullanıcıya açıkça bildirilsin — örn. MessageBox.Show("Birleştirme iptal edildi.", "İptal Edildi", MessageBoxButtons.OK, MessageBoxIcon.Information).
 
-7) Özet mesajı: İşlem bitince kullanıcıya kısa bir özet gösterilsin: kaç ürünün eksik bilgisi dolduruldu, kaç yeni ürün eklendi, hangi kolonlarda hangi çakışma kararının uygulandığı.
-
-8) Hata durumları: B dosyası okunamazsa, Ürün Kodu bulunamazsa, veya kaydetme sırasında hata olursa kullanıcıya net mesaj gösterilsin, uygulama çökmemeli.
-
-Kapsam dışı: Sürükle-bırak bu turda yok (sadece menüden dosya seçimi). Satır bazında (ürün bazında) çakışma çözümü yok — karar kolon bazında bir kez alınıyor, tüm satırlara aynı şekilde uygulanıyor.
-
-Test: (a) Hiç çakışan kolon olmayan iki dosya (A: Kod+Birim, B: Kod+Fiyat) birleştirilsin → çakışma diyaloğu hiç çıkmamalı, doğrudan birleşsin. (b) Ortak kolonu olan iki dosya (ikisinde de Stok Adeti) birleştirilsin → diyalog çıkmalı, "A'yı kullan" ve "Topla" seçenekleri ayrı ayrı denenip doğru sonucu verdiği doğrulansın. (c) B'de A'da olmayan ürün kodları varsa yeni satır olarak eklendiği doğrulansın. (d) Orijinal A ve B dosyalarının hiç değişmediği (boyut/zaman damgası) doğrulansın.
+Test: (1) Stok Adeti'ne 5-10 yazıp alandan çıkınca uyarı çıktığı, kaydetmeye çalışınca da engellendiği doğrulansın; Fiyat için de aynısı. (2) Pencere açılışta Filtre ve Sıralama butonlarının göründüğü ve çalıştığı doğrulansın. (3) Birleştirmede İptal'e basınca ekranın ortasında bir uyarı penceresi çıktığı doğrulansın.

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Globalization;
 using ExcelViewer.Models;
 using Guna.UI2.WinForms;
@@ -139,6 +140,10 @@ public sealed class AddProductForm : Form
         };
         // Stok girişi birime göre: "adet" ise tam sayı, diğer birimlerde ondalık.
         _txtStokAdeti.KeyPress += StokKeyPress;
+        // Alandan çıkınca +/- içeren ifade varsa hesaplanıp sonuç yazılır.
+        // Validating (Leave değil) kullanılır ki İptal'e basıldığında (CausesValidation
+        // = false) negatif-sonuç uyarısı açılıp iptali engellemesin.
+        _txtStokAdeti.Validating += IfadeAlaniValidating;
         Controls.Add(_txtStokAdeti);
 
         AddLabel("Birim", comboX, y);
@@ -167,6 +172,8 @@ public sealed class AddProductForm : Form
         };
         // Sadece ondalık sayı: harf engelli, tek ondalık ayıraç serbest.
         _txtFiyat.KeyPress += OndalikKeyPress;
+        // Alandan çıkınca +/- içeren ifade varsa hesaplanıp sonuç yazılır (bkz. yukarı).
+        _txtFiyat.Validating += IfadeAlaniValidating;
         Controls.Add(_txtFiyat);
 
         AddLabel("Para Birimi", comboX, y);
@@ -214,6 +221,8 @@ public sealed class AddProductForm : Form
             BorderRadius = 8,
             FillColor = Color.FromArgb(150, 150, 160),
             Font = new Font("Segoe UI Semibold", 9.5F),
+            // İptal'de alanların Validating'i (negatif-ifade uyarısı) tetiklenmesin.
+            CausesValidation = false,
         };
         _btnIptal.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
 
@@ -314,6 +323,10 @@ public sealed class AddProductForm : Form
         if (char.IsDigit(e.KeyChar))
             return;
 
+        // +/- ile toplama/çıkarma ifadesi girilebilir (ör. 120-16+5).
+        if (e.KeyChar is '+' or '-')
+            return;
+
         // "adet" değilse tek ondalık ayıraca izin ver.
         if (!adetBirimi && e.KeyChar is '.' or ',')
         {
@@ -337,6 +350,10 @@ public sealed class AddProductForm : Form
         if (char.IsDigit(e.KeyChar))
             return;
 
+        // +/- ile toplama/çıkarma ifadesi girilebilir (ör. 50+25).
+        if (e.KeyChar is '+' or '-')
+            return;
+
         if (e.KeyChar is '.' or ',')
         {
             string mevcut = _txtFiyat.Text;
@@ -346,6 +363,110 @@ public sealed class AddProductForm : Form
         }
 
         e.Handled = true; // Diğer her şey engellenir.
+    }
+
+    /// <summary>
+    /// Stok Adeti / Fiyat alanından çıkıldığında, içerik bir +/- operatörü
+    /// içeriyorsa ifadeyi hesaplayıp sonucu alana yazar. Düz bir sayıysa hiçbir şey
+    /// değişmez. Sonuç negatifse (ör. "120-200") yazılmaz; uyarı gösterilir ve alan
+    /// önceki (ifade) haliyle kalır. Geçersiz/yarım kalmış bir ifadede (ör. "120-")
+    /// alan boşaltılmaz; içerik olduğu gibi kalır ve Kaydet'teki mevcut sayı
+    /// doğrulaması uyarı verir.
+    /// </summary>
+    private void IfadeAlaniValidating(object? sender, CancelEventArgs e)
+    {
+        if (sender is not Guna2TextBox kutu)
+            return;
+
+        if (!IcerirOperator(kutu.Text))
+            return; // Düz sayı: dokunma.
+
+        if (!TryIfadeHesapla(kutu.Text, out decimal sonuc))
+            return; // Geçersiz: metni koru; Kaydet doğrulaması tutarlı uyarıyı gösterir.
+
+        if (sonuc < 0)
+        {
+            // Negatif sonuç yazılmaz; alan önceki (ifade) haliyle kalır.
+            Uyar(kutu == _txtStokAdeti ? "Stok Adeti negatif olamaz." : "Fiyat negatif olamaz.");
+            return;
+        }
+
+        kutu.Text = SayiBicim(sonuc);
+    }
+
+    /// <summary>
+    /// Metin bir aritmetik operatör içeriyor mu? İlk karakterdeki '-' bir işaret
+    /// (negatif) sayılır, operatör değil; '+' her yerde ve '-' ilk karakter dışında
+    /// operatör kabul edilir.
+    /// </summary>
+    private static bool IcerirOperator(string metin)
+    {
+        string t = metin.Trim();
+        for (int i = 0; i < t.Length; i++)
+        {
+            if (t[i] == '+')
+                return true;
+            if (t[i] == '-' && i > 0)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Yalnızca +/- içeren basit bir ifadeyi (ör. "120-16+5") soldan sağa toplar.
+    /// Çarpma/bölme/parantez desteklenmez; bir eval kullanılmaz — sadece terimler
+    /// +/- işaretlerine göre ayrılıp toplanır. Yarım kalmış ifadeler (ör. "120-")
+    /// veya boş terimler (ör. "120--16") geçersizdir ve false döner.
+    /// </summary>
+    private static bool TryIfadeHesapla(string ifade, out decimal sonuc)
+    {
+        sonuc = 0m;
+        ifade = ifade.Trim();
+        if (ifade.Length == 0)
+            return false;
+
+        int idx = 0;
+        int isaret = 1;
+        if (ifade[0] == '+')
+            idx = 1;
+        else if (ifade[0] == '-')
+        {
+            isaret = -1;
+            idx = 1;
+        }
+
+        decimal toplam = 0m;
+        var terim = new System.Text.StringBuilder();
+
+        for (; idx < ifade.Length; idx++)
+        {
+            char c = ifade[idx];
+            if (c is '+' or '-')
+            {
+                if (!TerimEkle(terim, isaret, ref toplam))
+                    return false; // Operatör öncesi geçerli bir sayı yok.
+                isaret = c == '-' ? -1 : 1;
+            }
+            else
+            {
+                terim.Append(c);
+            }
+        }
+
+        if (!TerimEkle(terim, isaret, ref toplam))
+            return false; // Yarım kalmış ifade (ör. "120-").
+
+        sonuc = toplam;
+        return true;
+
+        static bool TerimEkle(System.Text.StringBuilder terim, int isaret, ref decimal toplam)
+        {
+            if (terim.Length == 0 || !TryParseDecimal(terim.ToString(), out decimal deger))
+                return false;
+            toplam += isaret * deger;
+            terim.Clear();
+            return true;
+        }
     }
 
     private async void BtnKaydet_Click(object? sender, EventArgs e)
@@ -365,6 +486,13 @@ public sealed class AddProductForm : Form
             return;
         }
 
+        if (stokAdeti < 0)
+        {
+            Uyar("Stok Adeti negatif olamaz.");
+            ActiveControl = _txtStokAdeti;
+            return;
+        }
+
         // "adet" biriminde küsürat kabul edilmez.
         bool adetBirimi = _cmbBirim.Text.Trim().Equals("adet", StringComparison.OrdinalIgnoreCase);
         if (adetBirimi && stokAdeti != decimal.Truncate(stokAdeti))
@@ -377,6 +505,13 @@ public sealed class AddProductForm : Form
         if (!TryParseDecimal(_txtFiyat.Text, out decimal fiyat))
         {
             Uyar("Fiyat geçerli bir sayı olmalıdır.");
+            ActiveControl = _txtFiyat;
+            return;
+        }
+
+        if (fiyat < 0)
+        {
+            Uyar("Fiyat negatif olamaz.");
             ActiveControl = _txtFiyat;
             return;
         }
@@ -409,6 +544,14 @@ public sealed class AddProductForm : Form
         }
     }
 
+    // Yalnızca baştaki işaret + ondalık ayıraç kabul edilir. Sondaki işarete
+    // (NumberStyles.Any'de var) izin YOK; aksi halde yarım kalmış bir ifade ("120-")
+    // sessizce -120 olarak ayrıştırılırdı. Bu sayede "120-" geçersiz kalır ve
+    // Kaydet'teki mevcut uyarı mekanizması devreye girer.
+    private const NumberStyles SayiStilleri =
+        NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite |
+        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint;
+
     private static bool TryParseDecimal(string raw, out decimal value)
     {
         raw = raw.Trim();
@@ -420,7 +563,7 @@ public sealed class AddProductForm : Form
 
         // Hem virgül hem nokta ondalık ayıracını tolere et.
         raw = raw.Replace(',', '.');
-        return decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out value);
+        return decimal.TryParse(raw, SayiStilleri, CultureInfo.InvariantCulture, out value);
     }
 
     private void Uyar(string mesaj)

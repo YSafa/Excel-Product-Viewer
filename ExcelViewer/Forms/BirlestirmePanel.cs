@@ -7,7 +7,7 @@ namespace ExcelViewer.Forms;
 /// Birleştirmede A (açık dosya) ve B (seçilen dosya) arasında çakışan kolonlar
 /// için, kolon başına tek bir seçim aldıran diyalog. Her çakışan kolon için
 /// "A'yı kullan" / "B'yi kullan"; Stok Adeti için ek olarak "Topla (A + B)".
-/// Varsayılan "A'yı kullan". "Uygula" ile <see cref="Sonuc"/> döner; "İptal"
+/// Varsayılan "B'yi kullan". "Uygula" ile <see cref="Sonuc"/> döner; "İptal"
 /// veya kapatma birleştirmeyi durdurur.
 /// </summary>
 public sealed class BirlestirmePanel : Form
@@ -79,7 +79,7 @@ public sealed class BirlestirmePanel : Form
             combo.Items.Add(SecenekB);
             if (kolon == "Stok Adeti")
                 combo.Items.Add(SecenekTopla);
-            combo.SelectedIndex = 0; // Varsayılan: A'yı kullan.
+            combo.SelectedIndex = 1; // Varsayılan: B'yi kullan (seçilen dosya).
 
             _combolar[kolon] = combo;
             Controls.Add(combo);

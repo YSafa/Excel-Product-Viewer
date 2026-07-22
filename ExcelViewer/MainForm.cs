@@ -65,6 +65,8 @@ public sealed class MainForm : Form
     {
         Text = "Ürün Görüntüleyici";
         Size = new Size(960, 600);
+        // Pencere bu boyutun altına inince üst bar kontrolleri üst üste binmesin.
+        MinimumSize = new Size(780, 480);
         StartPosition = FormStartPosition.CenterScreen;
         BackColor = Color.FromArgb(245, 246, 250);
         Font = new Font("Segoe UI", 9F);
@@ -85,6 +87,7 @@ public sealed class MainForm : Form
             BorderRadius = 8,
             FillColor = Color.FromArgb(94, 92, 230),
             Font = new Font("Segoe UI Semibold", 9.5F),
+            Anchor = AnchorStyles.Top | AnchorStyles.Left,
         };
         _btnDosya.Click += BtnDosya_Click;
         _dosyaMenusu = BuildDosyaMenusu();
@@ -98,6 +101,7 @@ public sealed class MainForm : Form
             FillColor = Color.FromArgb(46, 170, 120),
             Font = new Font("Segoe UI Semibold", 9.5F),
             Enabled = false,
+            Anchor = AnchorStyles.Top | AnchorStyles.Left,
         };
         _btnAddProduct.Click += BtnAddProduct_Click;
 
@@ -109,6 +113,8 @@ public sealed class MainForm : Form
             BorderRadius = 8,
             Enabled = false,
             Font = new Font("Segoe UI", 10F),
+            // Pencere genişleyince arama kutusu da genişlesin.
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
         };
         _txtSearch.TextChanged += TxtSearch_TextChanged;
 
@@ -121,6 +127,8 @@ public sealed class MainForm : Form
             FillColor = Color.FromArgb(120, 118, 200),
             Font = new Font("Segoe UI Semibold", 9F),
             Enabled = false,
+            // Sağ kenara sabit: arama kutusu büyürken üzerine binmez.
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
         };
         _btnFiltre.Click += BtnFiltre_Click;
 
@@ -133,14 +141,9 @@ public sealed class MainForm : Form
             FillColor = Color.FromArgb(120, 118, 200),
             Font = new Font("Segoe UI Semibold", 9F),
             Enabled = false,
+            Anchor = AnchorStyles.Top | AnchorStyles.Right,
         };
         _btnSiralama.Click += BtnSiralama_Click;
-
-        topPanel.Controls.Add(_btnDosya);
-        topPanel.Controls.Add(_btnAddProduct);
-        topPanel.Controls.Add(_txtSearch);
-        topPanel.Controls.Add(_btnFiltre);
-        topPanel.Controls.Add(_btnSiralama);
 
         _lblStatus = new Guna2HtmlLabel
         {
@@ -175,6 +178,16 @@ public sealed class MainForm : Form
         Controls.Add(_grid);
         Controls.Add(topPanel);
         Controls.Add(_lblStatus);
+
+        // ÖNEMLİ: Üst bar kontrolleri, topPanel forma eklenip tam genişliğe
+        // dock EDİLDİKTEN SONRA eklenmeli. Aksi halde Top|Right anchor'lı Filtre/
+        // Sıralama butonları, panel hâlâ dar (varsayılan) genişlikteyken yanlış
+        // sağ-kenar boşluğu yakalar ve panel büyüyünce görünür alanın dışına taşar.
+        topPanel.Controls.Add(_btnDosya);
+        topPanel.Controls.Add(_btnAddProduct);
+        topPanel.Controls.Add(_txtSearch);
+        topPanel.Controls.Add(_btnFiltre);
+        topPanel.Controls.Add(_btnSiralama);
     }
 
     private static void StyleGrid(Guna2DataGridView grid)
@@ -335,6 +348,9 @@ public sealed class MainForm : Form
                 if (panel.ShowDialog(this) != DialogResult.OK || panel.Sonuc == null)
                 {
                     _lblStatus.Text = "Birleştirme iptal edildi.";
+                    MessageBox.Show(
+                        this, "Birleştirme iptal edildi.", "İptal Edildi",
+                        MessageBoxButtons.OK, MessageBoxIcon.Information);
                     return;
                 }
 
@@ -362,6 +378,14 @@ public sealed class MainForm : Form
             SetBusy(true, "Kaydediliyor...");
             await _excelExport.ExportAsync(saveDialog.FileName, birlesim.Urunler);
 
+            // Kaydetme başarılı: artık ekranda A değil, birleşim sonucu görünsün.
+            // Yeni dosyayı aktif dosya yapıp normal yükleme akışıyla tabloya bas.
+            _currentFilePath = saveDialog.FileName;
+            _kolonlarAyarlandi = false; // Yeni dosyada kolon oranları yeniden uygulansın.
+            await LoadFileAsync(_currentFilePath);
+
+            // LoadFileAsync durum çubuğunu "X ürün yüklendi" ile günceller;
+            // üstüne birleştirme özetini yaz.
             _lblStatus.Text =
                 $"Birleşim: {birlesim.DoldurulanUrunSayisi} ürünün eksik bilgisi dolduruldu, " +
                 $"{birlesim.EklenenUrunSayisi} yeni ürün eklendi.";
