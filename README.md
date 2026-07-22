@@ -103,7 +103,15 @@ Sayısal alanlar (Stok Adeti, Fiyat) hem gerçek Excel sayısı hem de metin ola
 ## 6) Özellikler
 
 ### Excel açma ve görüntüleme
-**Dosya ▾ → Excel Aç** ile bir `.xlsx` seçilir. Dosya arka planda okunur (arayüz donmaz) ve ürünler tabloya yüklenir. Dosya Excel'de açık olsa bile okuma yapılabilir (`FileShare.ReadWrite`). Durum çubuğu yüklenen ürün sayısını gösterir.
+**Dosya ▾ → Excel Aç** ile bir `.xlsx` seçilir. Dosya arka planda okunur (arayüz donmaz) ve ürünler tabloya yüklenir. Dosya Excel'de açık olsa bile okuma yapılabilir (`FileShare.ReadWrite`). Durum çubuğu yüklenen ürün sayısını gösterir. Bir `.xlsx` dosyasını doğrudan pencerenin üzerine **sürükleyip bırakarak** da açabilirsiniz (bkz. [Sürükle-bırak ile dosya açma](#sürükle-bırak-ile-dosya-açma)).
+
+### Sürükle-bırak ile dosya açma
+Bir `.xlsx` dosyasını dosya gezgininden alıp uygulama penceresinin üzerine **sürükleyip bırakabilirsiniz**. Dosya kabul edilebilir durumdayken üst bar hafifçe renk değiştirerek görsel ipucu verir. Davranış, o an bir dosyanın açık olup olmamasına göre değişir:
+
+- **Hiç dosya açık değilken:** Sürüklenen dosya, tıpkı **Excel Aç** gibi doğrudan yüklenir (ek soru sorulmaz).
+- **Bir dosya zaten açıkken:** Küçük bir seçim penceresi çıkar — **Aç** (mevcut dosyanın yerine sürüklenen dosya açılır) veya **Birleştir** (sürüklenen dosya ikinci dosya olarak alınıp birleştirme akışı, çakışma paneli dâhil başlatılır). Pencere **İptal** ile kapatılırsa hiçbir şey olmaz.
+
+Aynı anda birden fazla dosya veya `.xlsx` dışında bir dosya sürüklenirse işlem sessizce yok sayılır (hata verilmez).
 
 ### Arama
 Üstteki arama kutusuna yazılan metin **Ürün Kodu** veya **Birim** alanında geçen ürünleri süzer. Arama büyük/küçük harf duyarsızdır ve yazarken ~200 ms gecikmeli (debounce) çalışır; her tuşta değil, yazma durunca uygulanır.
@@ -143,7 +151,7 @@ Stok Adeti ve Fiyat alanlarına düz sayı yerine `+`/`-` içeren basit bir ifad
 **Dosya ▾ → Dışa Aktar**, tabloda o an görünen (arama + filtre + sıralama uygulanmış) listeyi seçilen konuma **yeni** bir `.xlsx` dosyası olarak yazar. Orijinal dosyaya dokunulmaz; çıktı sabit Türkçe başlıklarla (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi) oluşturulur, başlık satırı kalın ve dondurulmuş olur.
 
 ### Birleştirme
-**Dosya ▾ → Birleştir**, açık dosya (A) ile seçilen ikinci bir Excel dosyasını (B) **Ürün Kodu** üzerinden birleştirir:
+**Dosya ▾ → Birleştir**, açık dosya (A) ile seçilen ikinci bir Excel dosyasını (B) **Ürün Kodu** üzerinden birleştirir. İkinci dosyayı bir dosya seçme penceresiyle seçebilir ya da bir dosya açıkken ikinci `.xlsx`'i pencere üzerine **sürükleyip bırakıp "Birleştir"** diyerek de bu akışı başlatabilirsiniz:
 
 - A'da eksik olan bir kolon B'de varsa, o kolon B'den doldurulur.
 - B'de olup A'da bulunmayan ürünler yeni satır olarak eklenir.

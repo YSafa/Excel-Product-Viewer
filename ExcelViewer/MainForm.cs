@@ -48,6 +48,7 @@ public sealed class MainForm : Form
     private Guna2Button _btnSiralama = null!;
     private Guna2DataGridView _grid = null!;
     private Guna2HtmlLabel _lblStatus = null!;
+    private Panel _topPanel = null!;
 
     public MainForm()
     {
@@ -188,6 +189,15 @@ public sealed class MainForm : Form
         topPanel.Controls.Add(_txtSearch);
         topPanel.Controls.Add(_btnFiltre);
         topPanel.Controls.Add(_btnSiralama);
+
+        // Sürükle-bırak: pencerenin herhangi bir yerine .xlsx bırakılabilsin.
+        // Grid pencerenin büyük kısmını kapladığı için olaylar hem forma hem de
+        // grid/panel/durum çubuğuna bağlanır; aksi halde grid üstüne bırakma çalışmaz.
+        _topPanel = topPanel;
+        SurukleBirakBagla(this);
+        SurukleBirakBagla(_grid);
+        SurukleBirakBagla(topPanel);
+        SurukleBirakBagla(_lblStatus);
     }
 
     private static void StyleGrid(Guna2DataGridView grid)
@@ -322,12 +332,25 @@ public sealed class MainForm : Form
         if (openDialog.ShowDialog(this) != DialogResult.OK)
             return;
 
+        await BirlestirAsync(openDialog.FileName);
+    }
+
+    /// <summary>
+    /// Verilen Excel dosyasını (B) açık dosyayla (A) birleştirir. Hem Dosya
+    /// menüsündeki "Birleştir" hem de bir dosya sürüklenip "Birleştir" seçildiğinde
+    /// çağrılır; böylece birleştirme mantığı tek yerde tutulur.
+    /// </summary>
+    private async Task BirlestirAsync(string bDosyaYolu)
+    {
+        if (_allProducts == null || _currentFilePath == null)
+            return;
+
         try
         {
             // B, A ile aynı gelişmiş mantıkla okunur; Ürün Kodu yoksa ReadAsync
             // InvalidDataException fırlatır ve aşağıdaki catch kullanıcıyı bilgilendirir.
             SetBusy(true, "Dosya okunuyor...");
-            ExcelReadResult bResult = await _excelReader.ReadAsync(openDialog.FileName);
+            ExcelReadResult bResult = await _excelReader.ReadAsync(bDosyaYolu);
             SetBusy(false, null);
 
             List<Urun> b = bResult.Products;
@@ -444,6 +467,165 @@ public sealed class MainForm : Form
         }
 
         return string.Join(Environment.NewLine, satirlar);
+    }
+
+    // --- Sürükle-Bırak ---------------------------------------------------
+
+    // topPanel'in normal ve "bırakılabilir" (sürükleme sırasındaki) arka plan renkleri.
+    private static readonly Color TopPanelNormalRengi = Color.FromArgb(245, 246, 250);
+    private static readonly Color TopPanelSurukleRengi = Color.FromArgb(224, 223, 250);
+
+    private enum SurukleSecimi { Iptal, Ac, Birlestir }
+
+    /// <summary>Verilen kontrole sürükle-bırak olaylarını bağlar.</summary>
+    private void SurukleBirakBagla(Control kontrol)
+    {
+        kontrol.AllowDrop = true;
+        kontrol.DragEnter += MainForm_DragEnter;
+        kontrol.DragLeave += MainForm_DragLeave;
+        kontrol.DragDrop += MainForm_DragDrop;
+    }
+
+    private void MainForm_DragEnter(object? sender, DragEventArgs e)
+    {
+        // Yalnızca tek bir .xlsx dosyası için ve başka işlem sürmüyorken kabul göster.
+        if (!UseWaitCursor && SuruklenenXlsxYolu(e) != null)
+        {
+            e.Effect = DragDropEffects.Copy;
+            _topPanel.BackColor = TopPanelSurukleRengi; // Kabul edileceğinin görsel ipucu.
+        }
+        else
+        {
+            e.Effect = DragDropEffects.None;
+        }
+    }
+
+    private void MainForm_DragLeave(object? sender, EventArgs e) =>
+        _topPanel.BackColor = TopPanelNormalRengi;
+
+    private async void MainForm_DragDrop(object? sender, DragEventArgs e)
+    {
+        _topPanel.BackColor = TopPanelNormalRengi;
+
+        string? yol = SuruklenenXlsxYolu(e);
+        if (yol == null || UseWaitCursor)
+            return; // Geçersiz sürükleme veya süren işlem: sessizce yok say.
+
+        // Hiç dosya açık değilse: doğrudan aç ("Excel Aç" akışıyla aynı).
+        if (_allProducts == null || _currentFilePath == null)
+        {
+            _currentFilePath = yol;
+            _kolonlarAyarlandi = false;
+            await LoadFileAsync(yol, ilkYukleme: true);
+            return;
+        }
+
+        // Bir dosya zaten açık: kullanıcıya Aç / Birleştir / İptal seçtir.
+        switch (SurukleSecimiSor(Path.GetFileName(yol)))
+        {
+            case SurukleSecimi.Ac:
+                _currentFilePath = yol;
+                _kolonlarAyarlandi = false;
+                await LoadFileAsync(yol, ilkYukleme: true);
+                break;
+
+            case SurukleSecimi.Birlestir:
+                await BirlestirAsync(yol);
+                break;
+
+            // İptal: hiçbir şey yapma.
+        }
+    }
+
+    /// <summary>
+    /// Sürükleme verisinden tek bir .xlsx dosyasının yolunu döndürür. Birden fazla
+    /// dosya, .xlsx olmayan dosya veya dosya olmayan içerik için null döner
+    /// (bu durumlarda sürükleme sessizce yok sayılır).
+    /// </summary>
+    private static string? SuruklenenXlsxYolu(DragEventArgs e)
+    {
+        if (e.Data?.GetDataPresent(DataFormats.FileDrop) != true)
+            return null;
+
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] dosyalar || dosyalar.Length != 1)
+            return null;
+
+        string yol = dosyalar[0];
+        return yol.EndsWith(".xlsx", StringComparison.OrdinalIgnoreCase) && File.Exists(yol)
+            ? yol
+            : null;
+    }
+
+    /// <summary>
+    /// Bir dosya açıkken üzerine yeni bir dosya sürüklendiğinde çıkan seçim penceresi:
+    /// "Aç" (mevcut dosyayı kapatıp bunu aç) veya "Birleştir" (bunu B olarak birleştir).
+    /// İptal veya kapatmada <see cref="SurukleSecimi.Iptal"/> döner.
+    /// </summary>
+    private SurukleSecimi SurukleSecimiSor(string dosyaAdi)
+    {
+        using var dialog = new Form
+        {
+            Text = "Sürüklenen Dosya",
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            StartPosition = FormStartPosition.CenterParent,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ClientSize = new Size(400, 150),
+            BackColor = Color.White,
+            Font = new Font("Segoe UI", 9.5F),
+        };
+
+        dialog.Controls.Add(new Label
+        {
+            Text = $"'{dosyaAdi}' dosyasıyla ne yapmak istersiniz?",
+            Location = new Point(20, 22),
+            Size = new Size(360, 40),
+            ForeColor = Color.FromArgb(60, 60, 70),
+        });
+
+        var secim = SurukleSecimi.Iptal;
+
+        var btnAc = new Guna2Button
+        {
+            Text = "Aç",
+            Size = new Size(110, 40),
+            Location = new Point(20, 82),
+            BorderRadius = 8,
+            FillColor = Color.FromArgb(94, 92, 230),
+            Font = new Font("Segoe UI Semibold", 9.5F),
+        };
+        btnAc.Click += (_, _) => { secim = SurukleSecimi.Ac; dialog.DialogResult = DialogResult.OK; };
+
+        var btnBirlestir = new Guna2Button
+        {
+            Text = "Birleştir",
+            Size = new Size(120, 40),
+            Location = new Point(140, 82),
+            BorderRadius = 8,
+            FillColor = Color.FromArgb(46, 170, 120),
+            Font = new Font("Segoe UI Semibold", 9.5F),
+        };
+        btnBirlestir.Click += (_, _) => { secim = SurukleSecimi.Birlestir; dialog.DialogResult = DialogResult.OK; };
+
+        var btnIptal = new Guna2Button
+        {
+            Text = "İptal",
+            Size = new Size(90, 40),
+            Location = new Point(290, 82),
+            BorderRadius = 8,
+            FillColor = Color.FromArgb(150, 150, 160),
+            Font = new Font("Segoe UI Semibold", 9.5F),
+        };
+        btnIptal.Click += (_, _) => { secim = SurukleSecimi.Iptal; dialog.DialogResult = DialogResult.Cancel; };
+
+        dialog.Controls.Add(btnAc);
+        dialog.Controls.Add(btnBirlestir);
+        dialog.Controls.Add(btnIptal);
+        dialog.AcceptButton = btnAc;
+        dialog.CancelButton = btnIptal;
+
+        dialog.ShowDialog(this);
+        return secim;
     }
 
     /// <summary>
