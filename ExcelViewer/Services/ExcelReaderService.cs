@@ -53,7 +53,10 @@ public sealed class ExcelReaderService
         int scanLimit = Math.Min(HeaderScanRows, rows.Count);
         for (int i = 0; i < scanLimit; i++)
         {
-            ColumnMap aday = ColumnResolver.Resolve(rows[i]);
+            // Altındaki veri satırlarını da geç: aynı hücre hem Birim hem Fiyat
+            // anahtar kelimesini içerdiğinde (örn. "Unit Price") kararı verinin
+            // sayısal/metin olmasına göre vermek için kullanılır.
+            ColumnMap aday = ColumnResolver.Resolve(rows[i], rows.Skip(i + 1));
             int skor = ColumnResolver.EslesenKolonSayisi(aday);
             if (skor == 0)
                 continue;

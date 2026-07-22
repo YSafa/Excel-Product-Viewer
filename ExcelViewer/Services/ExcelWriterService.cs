@@ -57,7 +57,7 @@ public sealed class ExcelWriterService
             throw new InvalidOperationException("Excel sayfası boş; başlık satırı bulunamadı.");
 
         IXLRangeRow headerRow = usedRange.FirstRow();
-        ColumnMap columns = ColumnResolver.Resolve(headerRow);
+        ColumnMap columns = ColumnResolver.Resolve(headerRow, usedRange.RowsUsed().Skip(1));
 
         if (columns.UrunKodu == 0)
             throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
@@ -145,7 +145,7 @@ public sealed class ExcelWriterService
         if (usedRange == null)
             throw new InvalidOperationException("Excel sayfası boş; başlık satırı bulunamadı.");
 
-        ColumnMap columns = ColumnResolver.Resolve(usedRange.FirstRow());
+        ColumnMap columns = ColumnResolver.Resolve(usedRange.FirstRow(), usedRange.RowsUsed().Skip(1));
         if (columns.UrunKodu == 0)
             throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
 
@@ -205,7 +205,7 @@ public sealed class ExcelWriterService
         if (usedRange == null)
             return false;
 
-        ColumnMap columns = ColumnResolver.Resolve(usedRange.FirstRow());
+        ColumnMap columns = ColumnResolver.Resolve(usedRange.FirstRow(), usedRange.RowsUsed().Skip(1));
         if (columns.UrunKodu == 0)
             throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
 

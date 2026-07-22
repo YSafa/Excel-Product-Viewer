@@ -1,3 +1,4 @@
+using System.Globalization;
 using ClosedXML.Excel;
 
 namespace ExcelViewer.Services;
@@ -25,35 +26,220 @@ public static class ColumnResolver
     private static readonly string[] ParaBirimiAliases =
         { "Para Birimi", "ParaBirimi", "Döviz", "Kur", "Currency", "Curr" };
 
+    // Tam eşleşme (yukarıdaki alias'lar) hiçbir kolonda bulunamadığında kullanılan
+    // "içerir" (substring) anahtar kelimeleri. Başlık, bu kelimelerden birini
+    // (büyük/küçük harf duyarsız) içeriyorsa ilgili kolon kabul edilir. Örn.
+    // "2026 Unit Price (euro)" başlığı "price" içerdiği için Fiyat'a aday olur.
+    // Anahtar kelimeler bilinçli olarak alias'lardan daha dar ve ayırt edicidir;
+    // böylece rastgele başlıklara yanlış eşleşme riski azalır.
+    private static readonly string[] UrunKoduKeywords =
+        { "ürün kod", "urun kod", "product code", "item code", "stock code", "kod", "code", "model" };
+
+    private static readonly string[] StokAdetiKeywords =
+        { "stok", "stock", "adet", "miktar", "quantity", "qty" };
+
+    private static readonly string[] BirimKeywords =
+        { "birim", "ölçü", "olcu", "unit", "measure", "uom" };
+
+    private static readonly string[] FiyatKeywords =
+        { "fiyat", "ücret", "ucret", "tutar", "price", "cost" };
+
+    private static readonly string[] ParaBirimiKeywords =
+        { "para birim", "döviz", "doviz", "currency", "kur" };
+
+    /// <summary>
+    /// Başlık satırındaki mantıksal kolonların hangi mantıksal alana ait olduğunu
+    /// belirtir. Fallback eşleştirmede iç kullanım içindir.
+    /// </summary>
+    private enum LogicalColumn { UrunKodu, StokAdeti, Birim, Fiyat, ParaBirimi }
+
     /// <summary>
     /// Başlık satırından her mantıksal kolonun konumunu döndürür.
     /// Bulunamayan kolon 0 değerini alır.
+    ///
+    /// İki geçişli çalışır: önce tüm kolonlar için TAM eşleşme (alias) denenir;
+    /// tam eşleşmeyle bulunamayan kolonlar için ikinci geçişte "içerir" (substring)
+    /// fallback'i uygulanır. Bir kolon tam eşleşmeyle bulunduysa fallback o kolon
+    /// için hiç çalışmaz, dolayısıyla eski (tam eşleşen) dosyalarda davranış aynıdır.
     /// </summary>
-    public static ColumnMap Resolve(IXLRangeRow headerRow)
+    /// <param name="headerRow">Başlık satırı.</param>
+    /// <param name="dataRows">
+    /// Başlığın altındaki veri satırları (opsiyonel). Yalnızca aynı başlık hücresi
+    /// hem Birim hem Fiyat anahtar kelimesini içerdiğinde (örn. "Unit Price"),
+    /// altındaki verinin sayısal mı metin mi olduğuna bakarak karar vermek için
+    /// kullanılır. null ise böyle bir çakışmada Fiyat varsayılır.
+    /// </param>
+    public static ColumnMap Resolve(IXLRangeRow headerRow, IEnumerable<IXLRangeRow>? dataRows = null)
     {
         int urunKodu = 0, stokAdeti = 0, birim = 0, fiyat = 0, paraBirimi = 0;
 
+        // Başlık hücrelerini (boş olmayanları) konumlarıyla topla.
+        var cells = new List<(int Index, string Text)>();
         foreach (IXLCell cell in headerRow.Cells())
         {
             string header = cell.GetString().Trim();
-            if (header.Length == 0)
+            if (header.Length > 0)
+                cells.Add((cell.Address.ColumnNumber, header));
+        }
+
+        // Atanmış başlık konumları: aynı hücre iki kez kullanılmasın.
+        var assigned = new HashSet<int>();
+
+        // 1. GEÇİŞ — TAM EŞLEŞME. İlk (soldaki) eşleşme kazanır: bir mantıksal
+        // kolon zaten bulunduysa, sonradan gelen ve geniş alias'lara çakışan bir
+        // başlık (örn. gerçek "Stok Adeti" varken "Total") onu ezmez; o başlık
+        // eşleşmeyen sütun olarak kalır. Her kolonun bir kez geçtiği normal
+        // dosyalarda davranış değişmez.
+        foreach ((int index, string header) in cells)
+        {
+            if (urunKodu == 0 && Matches(header, UrunKoduAliases)) { urunKodu = index; assigned.Add(index); }
+            else if (stokAdeti == 0 && Matches(header, StokAdetiAliases)) { stokAdeti = index; assigned.Add(index); }
+            else if (birim == 0 && Matches(header, BirimAliases)) { birim = index; assigned.Add(index); }
+            else if (fiyat == 0 && Matches(header, FiyatAliases)) { fiyat = index; assigned.Add(index); }
+            else if (paraBirimi == 0 && Matches(header, ParaBirimiAliases)) { paraBirimi = index; assigned.Add(index); }
+        }
+
+        // 2. GEÇİŞ — "İÇERİR" FALLBACK. Yalnızca tam eşleşmeyle BULUNAMAYAN
+        // kolonlar için çalışır. Hücreler soldan sağa taranır; bir kolona ilk
+        // uyan (henüz atanmamış) hücre kazanır — mevcut "ilk eşleşme kazanır"
+        // mantığıyla tutarlı. Bir hücre birden fazla kolonun anahtar kelimesini
+        // içeriyorsa çakışma çözümü uygulanır.
+        foreach ((int index, string header) in cells)
+        {
+            if (assigned.Contains(index))
                 continue;
 
-            int index = cell.Address.ColumnNumber;
+            var matched = new List<(LogicalColumn Col, int KeywordLength)>();
+            if (urunKodu == 0) AddIfMatched(matched, LogicalColumn.UrunKodu, header, UrunKoduKeywords);
+            if (stokAdeti == 0) AddIfMatched(matched, LogicalColumn.StokAdeti, header, StokAdetiKeywords);
+            if (birim == 0) AddIfMatched(matched, LogicalColumn.Birim, header, BirimKeywords);
+            if (fiyat == 0) AddIfMatched(matched, LogicalColumn.Fiyat, header, FiyatKeywords);
+            if (paraBirimi == 0) AddIfMatched(matched, LogicalColumn.ParaBirimi, header, ParaBirimiKeywords);
 
-            // İlk (soldaki) eşleşme kazanır: bir mantıksal kolon zaten
-            // bulunduysa, sonradan gelen ve geniş alias'lara çakışan bir başlık
-            // (örn. gerçek "Stok Adeti" varken "Total") onu ezmez; o başlık
-            // eşleşmeyen sütun olarak kalır. Her kolonun bir kez geçtiği normal
-            // dosyalarda davranış değişmez.
-            if (urunKodu == 0 && Matches(header, UrunKoduAliases)) urunKodu = index;
-            else if (stokAdeti == 0 && Matches(header, StokAdetiAliases)) stokAdeti = index;
-            else if (birim == 0 && Matches(header, BirimAliases)) birim = index;
-            else if (fiyat == 0 && Matches(header, FiyatAliases)) fiyat = index;
-            else if (paraBirimi == 0 && Matches(header, ParaBirimiAliases)) paraBirimi = index;
+            if (matched.Count == 0)
+                continue;
+
+            LogicalColumn winner = ResolveConflict(matched, dataRows, index);
+
+            switch (winner)
+            {
+                case LogicalColumn.UrunKodu: urunKodu = index; break;
+                case LogicalColumn.StokAdeti: stokAdeti = index; break;
+                case LogicalColumn.Birim: birim = index; break;
+                case LogicalColumn.Fiyat: fiyat = index; break;
+                case LogicalColumn.ParaBirimi: paraBirimi = index; break;
+            }
+
+            assigned.Add(index);
         }
 
         return new ColumnMap(urunKodu, stokAdeti, birim, fiyat, paraBirimi);
+    }
+
+    /// <summary>
+    /// Aynı başlık hücresine birden fazla kolonun anahtar kelimesi uyduğunda
+    /// kazananı seçer.
+    ///
+    /// Özel durum — Birim ↔ Fiyat: "Unit Price" gibi bir başlık hem "unit" hem
+    /// "price" içerir. Bu durumda kolonun altındaki veri hücrelerine bakılır:
+    /// veri sayısalsa Fiyat, metinse Birim atanır. Karar verilemezse (veri yok
+    /// ya da karışık) Fiyat tercih edilir — sayısal kolonun yanlış atanması
+    /// metinsel kolondan daha görünür bir hatadır.
+    ///
+    /// Diğer tüm çoklu eşleşmelerde daha uzun (daha ayırt edici) anahtar kelimeyi
+    /// içeren kolon kazanır; eşitlikte kolon sırası (enum) belirleyicidir.
+    /// </summary>
+    private static LogicalColumn ResolveConflict(
+        List<(LogicalColumn Col, int KeywordLength)> matched,
+        IEnumerable<IXLRangeRow>? dataRows,
+        int columnNumber)
+    {
+        if (matched.Count == 1)
+            return matched[0].Col;
+
+        bool birimVar = matched.Exists(m => m.Col == LogicalColumn.Birim);
+        bool fiyatVar = matched.Exists(m => m.Col == LogicalColumn.Fiyat);
+        if (matched.Count == 2 && birimVar && fiyatVar)
+        {
+            return SutunVerisiMetinsel(dataRows, columnNumber)
+                ? LogicalColumn.Birim
+                : LogicalColumn.Fiyat;
+        }
+
+        LogicalColumn winner = matched[0].Col;
+        int bestLength = matched[0].KeywordLength;
+        foreach ((LogicalColumn col, int length) in matched)
+        {
+            if (length > bestLength || (length == bestLength && (int)col < (int)winner))
+            {
+                winner = col;
+                bestLength = length;
+            }
+        }
+
+        return winner;
+    }
+
+    /// <summary>
+    /// Verilen kolonun altındaki ilk birkaç dolu veri hücresine bakarak verinin
+    /// baskın olarak metinsel mi olduğunu döndürür. Sayısal (decimal olarak parse
+    /// edilebilen) değerler metin sayılmaz. Örnekleme küçük tutulur; tüm dosyayı
+    /// taramak gerekmez.
+    /// </summary>
+    private static bool SutunVerisiMetinsel(IEnumerable<IXLRangeRow>? dataRows, int columnNumber)
+    {
+        if (dataRows == null)
+            return false; // Veri yoksa Fiyat varsayılır (metinsel değil).
+
+        const int MaxOrnek = 5;
+        int metin = 0, sayisal = 0, incelenen = 0;
+
+        foreach (IXLRangeRow row in dataRows)
+        {
+            IXLCell cell = row.Cell(columnNumber);
+            string raw = cell.GetString().Trim();
+            if (raw.Length == 0)
+                continue;
+
+            if (cell.TryGetValue(out double _) ||
+                decimal.TryParse(raw, NumberStyles.Any, CultureInfo.InvariantCulture, out _))
+            {
+                sayisal++;
+            }
+            else
+            {
+                metin++;
+            }
+
+            if (++incelenen >= MaxOrnek)
+                break;
+        }
+
+        // Metin baskınsa Birim; sayısal, eşit ya da boşsa Fiyat (metinsel değil).
+        return metin > sayisal;
+    }
+
+    /// <summary>
+    /// Başlık, verilen anahtar kelimelerden birini içeriyorsa listeye en uzun
+    /// eşleşen kelimenin uzunluğuyla ekler. Uzunluk, çoklu eşleşme çözümünde
+    /// "en ayırt edici kelime kazanır" için kullanılır.
+    /// </summary>
+    private static void AddIfMatched(
+        List<(LogicalColumn Col, int KeywordLength)> matched,
+        LogicalColumn col, string header, string[] keywords)
+    {
+        int bestLength = 0;
+        foreach (string keyword in keywords)
+        {
+            if (keyword.Length > bestLength &&
+                header.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+            {
+                bestLength = keyword.Length;
+            }
+        }
+
+        if (bestLength > 0)
+            matched.Add((col, bestLength));
     }
 
     /// <summary>

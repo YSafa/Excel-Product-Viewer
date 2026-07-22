@@ -1,7 +1,32 @@
-Hata: "Eksik Sütunlar" uyarı penceresinde mesajın ikinci kısmı yanlış çalışıyor. Örnek: "Birim, Fiyat, Para Birimi sütunları şunlarla eşleşmediği için eklenmemiştir: (eşleşmeyen sütun yok)" — halbuki gerçek dosyada Ürün Kodu ve Stok Adeti dışında bizim şemamızla hiç örtüşmeyen birçok başlık var (örn. RAF, TOTAL, haftalık sayı sütunları gibi). Mesajın ikinci kısmı bu eşleşmeyen Excel başlıklarını listelemeli ama boş/yanlış geliyor.
+İşte tek parça, `temp.txt`'e olduğu gibi yapıştırabileceğin tam prompt:
 
-Kontrol edilmesi gereken: ColumnResolver.UnmatchedHeaders (veya bu bilgiyi hesaplayan metot) muhtemelen yanlış kümeyi hesaplıyor. Doğru mantık şu olmalı: Excel'deki başlık satırındaki tüm hücreleri gez, her biri için bizim bilinen alias listelerimizden (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi ve varyantları) herhangi birine eşleşip eşleşmediğine bak. Eşleşmeyenleri (boş hücreler hariç) bir listeye topla — işte "Excel'deki eşleşmeyen başlıklar" bu olmalı.
+---
 
-Doğrulama: Bu değişikliği, hem tam 5 kolonlu bir dosyada (mesaj hiç çıkmamalı) hem de kısmi/kaydırılmış başlıklı bir dosyada (mesajın her iki tarafı da doğru dolmalı — hangi bizim kolonumuz eksik VE Excel'de hangi başlıklar bizim şemamızla eşleşmedi) test et.
+**Hedef:** Başlık eşleştirme şu an sadece **tam eşleşme** (`Equals`) ile çalışıyor. Bazı gerçek Excel dosyalarında başlık, bizim alias listemizdeki kelimeyi içeren ama tam eşleşmeyen bir metin olabiliyor — örnek: `"2026 Unit Price (euro)"` başlığı içinde "Price" geçtiği halde hiçbir kolonla eşleşmiyor.
 
-Not: Bu, önceki adımda eklenen kolon gizleme/okuma mantığına dokunmuyor — o kısım doğrulandı ve doğru çalışıyor. Sadece uyarı mesajının metin/içerik hesaplama kısmı düzeltilecek.
+**1) Fallback eşleştirme (içerir/substring):** Tüm 5 kolon için, tam eşleşme bulunamazsa bir yedek kontrol eklensin: başlık metni, case-insensitive şekilde anahtar kelimelerden birini içeriyorsa, ilgili kolon olarak kabul edilsin.
+
+
+**Öncelik sırası:** Önce tüm kolonlar için tam eşleşme denensin (mevcut alias listesiyle, `ColumnResolver`'daki tanımlardan). Tam eşleşme hiçbir kolonda bulunamadıysa, ikinci bir geçişte kalan (henüz atanmamış) kolonlar için "içerir" kontrolü yapılsın. Bir kolon tam eşleşmeyle zaten bulunduysa, "içerir" fallback'i o kolon için hiç çalıştırılmasın.
+
+**Çakışma durumu (farklı hücreler):** "İçerir" kontrolünde birden fazla **farklı başlık hücresi** aynı kolona uyuyorsa, başlık satırında soldan sağa ilk rastlanan kazansın — mevcut "ilk eşleşme kazanır" mantığıyla tutarlı olsun.
+
+**2) Tek hücrede çoklu anahtar kelime çakışması:** Bir başlık hücresi, birden fazla kolonun fallback anahtar kelimesiyle **aynı anda** eşleşebiliyor. Örnek: `"Unit Price"` başlığı hem Birim'in anahtar kelimesi "unit"'i hem Fiyat'ın anahtar kelimesi "price"'ı içeriyor. Bu durumda:
+
+- O kolonun altındaki veri hücrelerine (ilk birkaç dolu satır yeterli) bakılsın.
+- Veriler **sayısal** (decimal olarak parse edilebiliyor) ise → **Fiyat** olarak atansın.
+- Veriler **metin** (sayısal parse edilemiyor, örn. "m", "adet") ise → **Birim** olarak atansın.
+- Veri hücreleri boşsa veya karar verilemiyorsa, Fiyat varsayılan olarak tercih edilsin (sayısal kolonların yanlış atanması metinsel kolonlardan daha görünür bir hata olur).
+- Bu ayrıştırma sadece **aynı hücrede birden fazla kolonun anahtar kelimesi birden geçtiğinde** devreye girsin; farklı hücrelerin farklı kolonlara net eşleştiği normal durumlarda gerek yok.
+
+**Kapsam sınırı:** Fallback ve çakışma çözümü yalnızca başlık satırındaki hücrelere uygulansın; ürün verisi (satır içerikleri) üzerinde substring arama yapılmasın, bu sadece kolon tespiti için.
+
+**Test:** Şu başlıklarla test edilsin:
+- `"2026 Unit Price (euro)"` → Fiyat (veri sayısalsa)
+- `"Item Code"` → Ürün Kodu
+- `"Currency Type"` → Para Birimi
+- `"Stock Qty"` → Stok Adeti
+- `"Measurement Unit"` → Birim
+- `"Unit Price"` (altında sayısal veri) → Fiyat olarak atanmalı, gerçek bir Birim kolonu yoksa Birim bulunamadı kalmalı
+
+Ayrıca tam eşleşen eski dosyalarda (`"Fiyat"`, `"Ürün Kodu"` vb.) davranışın değişmediği doğrulansın — tam eşleşme varken fallback'in araya girip yanlış bir şeyi ezmediğinden emin olunsun.
