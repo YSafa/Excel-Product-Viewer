@@ -1,11 +1,25 @@
-**Hedef:** `ExcelWriterService`, okuma tarafında (`ExcelReaderService` + `ColumnResolver`) artık kullanılan gelişmiş başlık tespiti ve esnek kolon eşleştirme mantığını kullanmıyor. Hâlâ her zaman ilk satırı başlık sayıyor ve sadece tam eşleşme yapıyor. Bu, kısmi/kaydırılmış başlıklı bir dosyada ürün ekleme/düzenleme/silme yapılırsa yanlış satıra veya yanlış kolona yazma riskine yol açıyor.
+Hedef: Kullanıcının o an ekranda gördüğü ürün listesini (arama, filtre ve sıralama uygulanmış haliyle) yeni bir .xlsx dosyası olarak dışa aktarma özelliği eklensin. Orijinal açık dosyaya hiçbir şekilde dokunulmasın.
 
-**1) Başlık satırı ve kolon tespiti tutarlılığı:** `ExcelWriterService`, başlık satırını bulurken ve kolonları eşleştirirken **`ExcelReaderService`/`ColumnResolver`'daki aynı mantığı** kullansın: ilk 10 satır içinde en çok kolona eşlenen satır başlık kabul edilsin, tam eşleşme + substring fallback + tek hücrede çoklu anahtar kelime çakışması durumları aynı şekilde ele alınsın. Kod tekrarını önlemek için mümkünse ortak metotlar (`ColumnResolver` üzerinden) hem okuma hem yazma tarafından çağrılsın.
+1) "Dosya" menüsü: Üst bar'a bir "Dosya" adında açılır menü (dropdown buton veya MenuStrip) eklensin. Tıklanınca/üzerine gelince şu seçenekler görünsün:
 
-**2) Eksik kolona yazma engeli:** Eğer kullanıcı Ürün Ekle veya Ürün Düzenle formunda bir alana (örn. Birim veya Fiyat) değer girdiyse ama o dosyada bu kolon **hiç bulunamadıysa** (kolon konumu 0), kaydetme işlemi **engellensin** ve kullanıcıya net bir uyarı gösterilsin — örneğin: "Bu Excel dosyasında '[alan adı]' sütunu bulunamadığı için bu bilgi kaydedilemiyor." Kayıt işlemi tamamen iptal edilsin, kısmi kayıt yapılmasın (yani diğer alanlar dolu, o alan sessizce atlanmış olmasın — kullanıcı ya tüm bilgiyi görür ya da hiçbirini).
+Excel Aç — mevcut "Excel Seç" butonuyla aynı işlevi yapsın (aynı fonksiyona bağlansın, kod tekrarı olmasın).
+Dışa Aktar — bu turda işlevsel olacak (aşağıda detay var).
+Birleştir — şimdilik pasif/devre dışı görünsün (gelecekte eklenecek import özelliği için yer tutucu, tıklanamaz).
+Kaydet — şimdilik pasif/devre dışı görünsün (uygulama zaten her işlemde değişikliği anlık Excel'e yazdığı için şu an işlevi yok, ileride farklı bir amaçla kullanılabilir diye yer tutucu olarak duruyor).
 
-**3) Ürün Kodu zorunluluğu (tutarlılık):** Okuma tarafında olduğu gibi, yazma tarafında da Ürün Kodu kolonu bulunamazsa işlem tamamen engellensin (bu zaten okuma sırasında dosya reddedildiği için pratikte oluşmaz, ama yazma tarafında da aynı güvenlik kontrolü bulunsun).
+Mevcut "Excel Seç" butonu üst barda aynen kalsın (hızlı erişim için), menüdeki "Excel Aç" ile birlikte iki erişim yolu olsun — ikisi de aynı fonksiyonu çağırsın.
 
-**Kapsam dışı (bu turda yapılmayacak):** Excel'de olmayan bir kolonu otomatik olarak dosyaya yeni sütun ekleyerek oluşturma bu turda yok — sadece var olan kolonlara doğru yazma ve eksik kolona yazma girişimini engelleyip uyarma var.
+2) Dışa Aktar davranışı: "Dosya" menüsünden "Dışa Aktar" seçilince (bir dosya açık değilken bu seçenek devre dışı olsun):
 
-**Test:** Kısmi kolonlu (örn. sadece Ürün Kodu + Stok Adeti olan) bir dosyada: (a) yeni ürün ekleme — Birim/Fiyat/Para Birimi alanları boş bırakılırsa sorunsuz eklenmeli; bu alanlara değer girilirse uyarı çıkıp işlem iptal olmalı. (b) mevcut bir satırı düzenleme — doğru satır bulunup güncellenmeli. (c) satır silme — doğru satır silinmeli. Ayrıca tam kolonlu eski dosyalarda ekleme/düzenleme/silmenin hiç değişmediği doğrulansın.
+SaveFileDialog açılsın, kullanıcı konum ve dosya adı seçsin. Varsayılan dosya adı örn. "Urunler_Export_yyyyMMdd_HHmm.xlsx" formatında olsun. Filtre .xlsx ile sınırlı olsun.
+O an grid'de görünen (yani _bindingSource.DataSource'taki, arama + filtre + sıralama uygulanmış) ürün listesi alınsın.
+ClosedXML ile yeni bir workbook oluşturulup, başlık satırına standart Türkçe kolon adları (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi) yazılsın, altına sırasıyla ürün verileri yazılsın.
+Kullanıcının seçtiği konuma kaydedilsin.
+
+3) Sonuç bildirimi: İşlem tamamlanınca durum çubuğunda (_lblStatus) veya kısa bir MessageBox ile "X ürün dışa aktarıldı: [dosya adı]" gibi bir onay mesajı gösterilsin.
+
+4) Hata durumu: Kaydetme sırasında bir hata oluşursa (örn. yazma izni yok, disk dolu) kullanıcıya net bir hata mesajı gösterilsin, uygulama çökmemeli.
+
+Kapsam dışı: Bu turda içe aktarma (Birleştir) ve Kaydet işlevsel değil, sadece menüde pasif yer tutucu olarak duruyorlar. Grid'de görünmeyen (filtrelenmiş dışı kalan) ürünler dışa aktarılmasın — sadece o an ekranda ne varsa o gitsin.
+
+Test: Hiç filtre/arama uygulanmadan tüm listeyi dışa aktar → tüm ürünler çıkmalı. Arama/filtre uygulayıp daraltılmış bir liste varken dışa aktar → sadece görünen ürünler çıkmalı. Çıkan dosya uygulamaya tekrar "Excel Seç" veya "Excel Aç" ile açılabilmeli ve doğru okunmalı. Menüdeki "Excel Aç" ve üst bardaki "Excel Seç" butonunun aynı davrandığı doğrulansın.

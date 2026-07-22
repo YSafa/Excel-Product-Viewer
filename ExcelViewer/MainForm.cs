@@ -17,6 +17,7 @@ public sealed class MainForm : Form
     private readonly ExcelReaderService _excelReader = new();
     private readonly LogService _logService = new();
     private readonly ExcelWriterService _excelWriter;
+    private readonly ExcelExportService _excelExport = new();
     private readonly BindingSource _bindingSource = new();
     private readonly System.Windows.Forms.Timer _searchDebounceTimer = new();
 
@@ -35,8 +36,13 @@ public sealed class MainForm : Form
     // sonrasında kullanıcının elle yaptığı genişlik değişiklikleri korunur.
     private bool _kolonlarAyarlandi;
 
+    private Guna2Button _btnDosya = null!;
     private Guna2Button _btnSelectFile = null!;
     private Guna2Button _btnAddProduct = null!;
+
+    // "Dosya" açılır menüsü ve dışa aktarma öğesi (dosya açıkken etkinleşir).
+    private ContextMenuStrip _dosyaMenusu = null!;
+    private ToolStripMenuItem _menuDisaAktar = null!;
     private Guna2TextBox _txtSearch = null!;
     private Guna2Button _btnFiltre = null!;
     private Guna2Button _btnSiralama = null!;
@@ -71,11 +77,23 @@ public sealed class MainForm : Form
             BackColor = Color.FromArgb(245, 246, 250),
         };
 
+        _btnDosya = new Guna2Button
+        {
+            Text = "Dosya ▾",
+            Size = new Size(90, 40),
+            Location = new Point(16, 12),
+            BorderRadius = 8,
+            FillColor = Color.FromArgb(120, 118, 200),
+            Font = new Font("Segoe UI Semibold", 9.5F),
+        };
+        _btnDosya.Click += BtnDosya_Click;
+        _dosyaMenusu = BuildDosyaMenusu();
+
         _btnSelectFile = new Guna2Button
         {
             Text = "Excel Seç",
             Size = new Size(110, 40),
-            Location = new Point(16, 12),
+            Location = new Point(116, 12),
             BorderRadius = 8,
             FillColor = Color.FromArgb(94, 92, 230),
             Font = new Font("Segoe UI Semibold", 9.5F),
@@ -86,7 +104,7 @@ public sealed class MainForm : Form
         {
             Text = "Ürün Ekle",
             Size = new Size(110, 40),
-            Location = new Point(136, 12),
+            Location = new Point(236, 12),
             BorderRadius = 8,
             FillColor = Color.FromArgb(46, 170, 120),
             Font = new Font("Segoe UI Semibold", 9.5F),
@@ -97,8 +115,8 @@ public sealed class MainForm : Form
         _txtSearch = new Guna2TextBox
         {
             PlaceholderText = "Ürün kodu veya birime göre ara...",
-            Size = new Size(430, 40),
-            Location = new Point(256, 12),
+            Size = new Size(330, 40),
+            Location = new Point(356, 12),
             BorderRadius = 8,
             Enabled = false,
             Font = new Font("Segoe UI", 10F),
@@ -129,6 +147,7 @@ public sealed class MainForm : Form
         };
         _btnSiralama.Click += BtnSiralama_Click;
 
+        topPanel.Controls.Add(_btnDosya);
         topPanel.Controls.Add(_btnSelectFile);
         topPanel.Controls.Add(_btnAddProduct);
         topPanel.Controls.Add(_txtSearch);
@@ -204,6 +223,77 @@ public sealed class MainForm : Form
         _currentFilePath = dialog.FileName;
         _kolonlarAyarlandi = false; // Yeni dosyada kolon oranları yeniden uygulansın.
         await LoadFileAsync(_currentFilePath, ilkYukleme: true);
+    }
+
+    /// <summary>
+    /// "Dosya" açılır menüsünü oluşturur. "Excel Aç" üst bardaki "Excel Seç" ile
+    /// AYNI fonksiyonu çağırır (kod tekrarı yok). "Birleştir" ve "Kaydet" bu turda
+    /// pasif yer tutucudur. "Dışa Aktar" yalnızca bir dosya açıkken etkinleşir.
+    /// </summary>
+    private ContextMenuStrip BuildDosyaMenusu()
+    {
+        var menu = new ContextMenuStrip { Font = new Font("Segoe UI", 9.5F) };
+
+        var excelAc = new ToolStripMenuItem("Excel Aç", null, BtnSelectFile_Click);
+        _menuDisaAktar = new ToolStripMenuItem("Dışa Aktar", null, MenuDisaAktar_Click)
+        {
+            Enabled = false,
+        };
+        var birlestir = new ToolStripMenuItem("Birleştir") { Enabled = false }; // İleride: içe aktarma.
+        var kaydet = new ToolStripMenuItem("Kaydet") { Enabled = false };       // Yer tutucu.
+
+        menu.Items.AddRange(new ToolStripItem[] { excelAc, _menuDisaAktar, birlestir, kaydet });
+        return menu;
+    }
+
+    private void BtnDosya_Click(object? sender, EventArgs e)
+    {
+        // Dışa Aktar yalnızca bir dosya yüklüyken ve işlem sürmüyorken açık olsun.
+        _menuDisaAktar.Enabled = _allProducts != null && !UseWaitCursor;
+        _dosyaMenusu.Show(_btnDosya, new Point(0, _btnDosya.Height));
+    }
+
+    /// <summary>
+    /// Grid'de o an görünen (arama + filtre + sıralama uygulanmış) ürün listesini
+    /// kullanıcının seçtiği konuma yeni bir .xlsx olarak yazar. Orijinal dosyaya
+    /// dokunulmaz.
+    /// </summary>
+    private async void MenuDisaAktar_Click(object? sender, EventArgs e)
+    {
+        if (_bindingSource.DataSource is not List<Urun> gorunenUrunler)
+            return;
+
+        using var dialog = new SaveFileDialog
+        {
+            Filter = "Excel dosyaları (*.xlsx)|*.xlsx",
+            Title = "Görünen listeyi dışa aktar",
+            FileName = $"Urunler_Export_{DateTime.Now:yyyyMMdd_HHmm}.xlsx",
+            DefaultExt = "xlsx",
+            AddExtension = true,
+        };
+
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        SetBusy(true, "Dışa aktarılıyor...");
+        try
+        {
+            await _excelExport.ExportAsync(dialog.FileName, gorunenUrunler);
+            _lblStatus.Text =
+                $"{gorunenUrunler.Count} ürün dışa aktarıldı: {Path.GetFileName(dialog.FileName)}";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Dışa aktarma başarısız oldu:{Environment.NewLine}{ex.Message}",
+                "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _lblStatus.Text = "Dışa aktarılamadı.";
+        }
+        finally
+        {
+            SetBusy(false, null);
+        }
     }
 
     /// <summary>
@@ -709,6 +799,7 @@ public sealed class MainForm : Form
 
     private void SetBusy(bool busy, string? statusText)
     {
+        _btnDosya.Enabled = !busy;
         _btnSelectFile.Enabled = !busy;
         _btnAddProduct.Enabled = !busy && _allProducts != null;
         _btnFiltre.Enabled = !busy && _allProducts != null;
@@ -725,6 +816,7 @@ public sealed class MainForm : Form
         {
             _searchDebounceTimer.Dispose();
             _bindingSource.Dispose();
+            _dosyaMenusu.Dispose();
         }
 
         base.Dispose(disposing);
