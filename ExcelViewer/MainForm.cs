@@ -80,31 +80,20 @@ public sealed class MainForm : Form
         _btnDosya = new Guna2Button
         {
             Text = "Dosya ▾",
-            Size = new Size(90, 40),
-            Location = new Point(16, 12),
-            BorderRadius = 8,
-            FillColor = Color.FromArgb(120, 118, 200),
-            Font = new Font("Segoe UI Semibold", 9.5F),
-        };
-        _btnDosya.Click += BtnDosya_Click;
-        _dosyaMenusu = BuildDosyaMenusu();
-
-        _btnSelectFile = new Guna2Button
-        {
-            Text = "Excel Seç",
             Size = new Size(110, 40),
-            Location = new Point(116, 12),
+            Location = new Point(16, 12),
             BorderRadius = 8,
             FillColor = Color.FromArgb(94, 92, 230),
             Font = new Font("Segoe UI Semibold", 9.5F),
         };
-        _btnSelectFile.Click += BtnSelectFile_Click;
-
+        _btnDosya.Click += BtnDosya_Click;
+        _dosyaMenusu = BuildDosyaMenusu();
+        
         _btnAddProduct = new Guna2Button
         {
             Text = "Ürün Ekle",
             Size = new Size(110, 40),
-            Location = new Point(236, 12),
+            Location = new Point(136, 12),
             BorderRadius = 8,
             FillColor = Color.FromArgb(46, 170, 120),
             Font = new Font("Segoe UI Semibold", 9.5F),
@@ -115,8 +104,8 @@ public sealed class MainForm : Form
         _txtSearch = new Guna2TextBox
         {
             PlaceholderText = "Ürün kodu veya birime göre ara...",
-            Size = new Size(330, 40),
-            Location = new Point(356, 12),
+            Size = new Size(490, 40),
+            Location = new Point(256, 12),
             BorderRadius = 8,
             Enabled = false,
             Font = new Font("Segoe UI", 10F),
@@ -127,7 +116,7 @@ public sealed class MainForm : Form
         {
             Text = "Filtre",
             Size = new Size(80, 40),
-            Location = new Point(694, 12),
+            Location = new Point(754, 12),
             BorderRadius = 8,
             FillColor = Color.FromArgb(120, 118, 200),
             Font = new Font("Segoe UI Semibold", 9F),
@@ -139,7 +128,7 @@ public sealed class MainForm : Form
         {
             Text = "Sırala",
             Size = new Size(80, 40),
-            Location = new Point(780, 12),
+            Location = new Point(840, 12),
             BorderRadius = 8,
             FillColor = Color.FromArgb(120, 118, 200),
             Font = new Font("Segoe UI Semibold", 9F),
@@ -800,7 +789,6 @@ public sealed class MainForm : Form
     private void SetBusy(bool busy, string? statusText)
     {
         _btnDosya.Enabled = !busy;
-        _btnSelectFile.Enabled = !busy;
         _btnAddProduct.Enabled = !busy && _allProducts != null;
         _btnFiltre.Enabled = !busy && _allProducts != null;
         _btnSiralama.Enabled = !busy && _allProducts != null;
