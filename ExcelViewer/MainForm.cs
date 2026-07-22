@@ -37,12 +37,12 @@ public sealed class MainForm : Form
     private bool _kolonlarAyarlandi;
 
     private Guna2Button _btnDosya = null!;
-    private Guna2Button _btnSelectFile = null!;
     private Guna2Button _btnAddProduct = null!;
 
-    // "Dosya" açılır menüsü ve dışa aktarma öğesi (dosya açıkken etkinleşir).
+    // "Dosya" açılır menüsü ve dosya-açıkken etkinleşen öğeleri.
     private ContextMenuStrip _dosyaMenusu = null!;
     private ToolStripMenuItem _menuDisaAktar = null!;
+    private ToolStripMenuItem _menuBirlestir = null!;
     private Guna2TextBox _txtSearch = null!;
     private Guna2Button _btnFiltre = null!;
     private Guna2Button _btnSiralama = null!;
@@ -137,7 +137,6 @@ public sealed class MainForm : Form
         _btnSiralama.Click += BtnSiralama_Click;
 
         topPanel.Controls.Add(_btnDosya);
-        topPanel.Controls.Add(_btnSelectFile);
         topPanel.Controls.Add(_btnAddProduct);
         topPanel.Controls.Add(_txtSearch);
         topPanel.Controls.Add(_btnFiltre);
@@ -215,9 +214,9 @@ public sealed class MainForm : Form
     }
 
     /// <summary>
-    /// "Dosya" açılır menüsünü oluşturur. "Excel Aç" üst bardaki "Excel Seç" ile
-    /// AYNI fonksiyonu çağırır (kod tekrarı yok). "Birleştir" ve "Kaydet" bu turda
-    /// pasif yer tutucudur. "Dışa Aktar" yalnızca bir dosya açıkken etkinleşir.
+    /// "Dosya" açılır menüsünü oluşturur. "Excel Aç" dosya seçme işlevini çağırır.
+    /// "Dışa Aktar" ve "Birleştir" yalnızca bir dosya açıkken etkinleşir. "Kaydet"
+    /// bu turda pasif yer tutucudur (uygulama her işlemde anlık kaydeder).
     /// </summary>
     private ContextMenuStrip BuildDosyaMenusu()
     {
@@ -228,17 +227,22 @@ public sealed class MainForm : Form
         {
             Enabled = false,
         };
-        var birlestir = new ToolStripMenuItem("Birleştir") { Enabled = false }; // İleride: içe aktarma.
-        var kaydet = new ToolStripMenuItem("Kaydet") { Enabled = false };       // Yer tutucu.
+        _menuBirlestir = new ToolStripMenuItem("Birleştir", null, MenuBirlestir_Click)
+        {
+            Enabled = false,
+        };
+        var kaydet = new ToolStripMenuItem("Kaydet") { Enabled = false }; // Yer tutucu.
 
-        menu.Items.AddRange(new ToolStripItem[] { excelAc, _menuDisaAktar, birlestir, kaydet });
+        menu.Items.AddRange(new ToolStripItem[] { excelAc, _menuDisaAktar, _menuBirlestir, kaydet });
         return menu;
     }
 
     private void BtnDosya_Click(object? sender, EventArgs e)
     {
-        // Dışa Aktar yalnızca bir dosya yüklüyken ve işlem sürmüyorken açık olsun.
-        _menuDisaAktar.Enabled = _allProducts != null && !UseWaitCursor;
+        // Dışa Aktar ve Birleştir yalnızca bir dosya yüklüyken ve işlem sürmüyorken.
+        bool dosyaHazir = _allProducts != null && !UseWaitCursor;
+        _menuDisaAktar.Enabled = dosyaHazir;
+        _menuBirlestir.Enabled = dosyaHazir;
         _dosyaMenusu.Show(_btnDosya, new Point(0, _btnDosya.Height));
     }
 
@@ -283,6 +287,139 @@ public sealed class MainForm : Form
         {
             SetBusy(false, null);
         }
+    }
+
+    /// <summary>
+    /// Açık dosya (A) ile kullanıcının seçtiği başka bir Excel dosyasını (B)
+    /// birleştirir: A'nın eksik kolonları B'den doldurulur, B'de olup A'da olmayan
+    /// ürünler yeni satır olarak eklenir. Sonuç YENİ bir dosyaya yazılır; A ve B'ye
+    /// dokunulmaz. Çakışan kolonlar için kullanıcıya kolon bazında karar sorulur.
+    /// </summary>
+    private async void MenuBirlestir_Click(object? sender, EventArgs e)
+    {
+        if (_allProducts == null || _currentFilePath == null)
+            return;
+
+        // B dosyasını seç.
+        using var openDialog = new OpenFileDialog
+        {
+            Filter = "Excel dosyaları (*.xlsx)|*.xlsx",
+            Title = "Birleştirilecek Excel dosyasını seçin",
+        };
+        if (openDialog.ShowDialog(this) != DialogResult.OK)
+            return;
+
+        try
+        {
+            // B, A ile aynı gelişmiş mantıkla okunur; Ürün Kodu yoksa ReadAsync
+            // InvalidDataException fırlatır ve aşağıdaki catch kullanıcıyı bilgilendirir.
+            SetBusy(true, "Dosya okunuyor...");
+            ExcelReadResult bResult = await _excelReader.ReadAsync(openDialog.FileName);
+            SetBusy(false, null);
+
+            List<Urun> b = bResult.Products;
+            ColumnMap bCols = bResult.Columns;
+
+            // A ve B'de ortak bulunan (çakışan) veri kolonlarını belirle.
+            var cakisanlar = new List<string>();
+            if (_currentColumns.StokAdeti != 0 && bCols.StokAdeti != 0) cakisanlar.Add("Stok Adeti");
+            if (_currentColumns.Birim != 0 && bCols.Birim != 0) cakisanlar.Add("Birim");
+            if (_currentColumns.Fiyat != 0 && bCols.Fiyat != 0) cakisanlar.Add("Fiyat");
+            if (_currentColumns.ParaBirimi != 0 && bCols.ParaBirimi != 0) cakisanlar.Add("Para Birimi");
+
+            // Çakışma varsa kullanıcıya kolon bazında sor. Yoksa doğrudan birleştir.
+            var kararlar = new BirlestirmeKararlari();
+            if (cakisanlar.Count > 0)
+            {
+                using var panel = new BirlestirmePanel(cakisanlar);
+                if (panel.ShowDialog(this) != DialogResult.OK || panel.Sonuc == null)
+                {
+                    _lblStatus.Text = "Birleştirme iptal edildi.";
+                    return;
+                }
+
+                kararlar = panel.Sonuc;
+            }
+
+            BirlestirmeSonucu birlesim = ProductMergeService.Birlestir(
+                _allProducts, _currentColumns, b, bCols, kararlar);
+
+            // Sonucu yeni bir dosyaya kaydet.
+            using var saveDialog = new SaveFileDialog
+            {
+                Filter = "Excel dosyaları (*.xlsx)|*.xlsx",
+                Title = "Birleştirme sonucunu kaydet",
+                FileName = $"Urunler_Birlesim_{DateTime.Now:yyyyMMdd_HHmm}.xlsx",
+                DefaultExt = "xlsx",
+                AddExtension = true,
+            };
+            if (saveDialog.ShowDialog(this) != DialogResult.OK)
+            {
+                _lblStatus.Text = "Birleştirme iptal edildi.";
+                return;
+            }
+
+            SetBusy(true, "Kaydediliyor...");
+            await _excelExport.ExportAsync(saveDialog.FileName, birlesim.Urunler);
+
+            _lblStatus.Text =
+                $"Birleşim: {birlesim.DoldurulanUrunSayisi} ürünün eksik bilgisi dolduruldu, " +
+                $"{birlesim.EklenenUrunSayisi} yeni ürün eklendi.";
+
+            string kararOzeti = cakisanlar.Count > 0
+                ? Environment.NewLine + Environment.NewLine + "Kolon kararları:" +
+                  Environment.NewLine + KararOzeti(cakisanlar, kararlar)
+                : Environment.NewLine + Environment.NewLine + "Çakışan kolon yoktu.";
+
+            MessageBox.Show(
+                this,
+                "Birleştirme tamamlandı." + Environment.NewLine + Environment.NewLine +
+                $"• Eksik bilgisi doldurulan ürün: {birlesim.DoldurulanUrunSayisi}" + Environment.NewLine +
+                $"• Yeni eklenen ürün: {birlesim.EklenenUrunSayisi}" + Environment.NewLine +
+                $"• Toplam satır: {birlesim.Urunler.Count}" +
+                kararOzeti + Environment.NewLine + Environment.NewLine +
+                $"Dosya: {Path.GetFileName(saveDialog.FileName)}",
+                "Birleştirme Tamamlandı", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                this,
+                $"Birleştirme başarısız oldu:{Environment.NewLine}{ex.Message}",
+                "Hata", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            _lblStatus.Text = "Birleştirilemedi.";
+        }
+        finally
+        {
+            SetBusy(false, null);
+        }
+    }
+
+    /// <summary>Çakışan kolonlara uygulanan kararların özet metni (özet mesajı için).</summary>
+    private static string KararOzeti(List<string> cakisanlar, BirlestirmeKararlari kararlar)
+    {
+        static string Ad(KolonKarari? karar) => karar switch
+        {
+            KolonKarari.ByiKullan => "B'yi kullan",
+            KolonKarari.Topla => "Topla (A + B)",
+            _ => "A'yı kullan",
+        };
+
+        var satirlar = new List<string>();
+        foreach (string kolon in cakisanlar)
+        {
+            KolonKarari? karar = kolon switch
+            {
+                "Stok Adeti" => kararlar.StokAdeti,
+                "Birim" => kararlar.Birim,
+                "Fiyat" => kararlar.Fiyat,
+                "Para Birimi" => kararlar.ParaBirimi,
+                _ => null,
+            };
+            satirlar.Add($"  • {kolon}: {Ad(karar)}");
+        }
+
+        return string.Join(Environment.NewLine, satirlar);
     }
 
     /// <summary>

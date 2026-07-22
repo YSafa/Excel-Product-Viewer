@@ -1,25 +1,31 @@
-Hedef: Kullanıcının o an ekranda gördüğü ürün listesini (arama, filtre ve sıralama uygulanmış haliyle) yeni bir .xlsx dosyası olarak dışa aktarma özelliği eklensin. Orijinal açık dosyaya hiçbir şekilde dokunulmasın.
+Hedef: "Dosya" menüsündeki "Birleştir" seçeneği işlevsel hale getirilsin. Kullanıcı, o an açık olan dosya (A) ile başka bir Excel dosyasını (B) seçip birleştirebilsin: A'daki ürünlerin eksik kolonları B'den doldurulsun, B'de olup A'da olmayan ürünler yeni satır olarak eklensin. Sonuç, yeni bir dosyaya yazılsın; A ve B dosyalarına dokunulmasın.
 
-1) "Dosya" menüsü: Üst bar'a bir "Dosya" adında açılır menü (dropdown buton veya MenuStrip) eklensin. Tıklanınca/üzerine gelince şu seçenekler görünsün:
+1) Tetikleme: "Dosya" menüsündeki "Birleştir" artık aktif olsun (sadece bir dosya açıkken etkin). Tıklanınca OpenFileDialog ile B dosyası seçilsin.
 
-Excel Aç — mevcut "Excel Seç" butonuyla aynı işlevi yapsın (aynı fonksiyona bağlansın, kod tekrarı olmasın).
-Dışa Aktar — bu turda işlevsel olacak (aşağıda detay var).
-Birleştir — şimdilik pasif/devre dışı görünsün (gelecekte eklenecek import özelliği için yer tutucu, tıklanamaz).
-Kaydet — şimdilik pasif/devre dışı görünsün (uygulama zaten her işlemde değişikliği anlık Excel'e yazdığı için şu an işlevi yok, ileride farklı bir amaçla kullanılabilir diye yer tutucu olarak duruyor).
+2) B'nin okunması: B dosyası, A ile aynı gelişmiş mantıkla okunsun — ColumnResolver'daki ortak başlık tespiti (ilk 10 satırda en zengin satır) ve esnek eşleştirme (tam eşleşme + substring fallback + çoklu-anahtar çakışma çözümü) kullanılsın. B'de Ürün Kodu bulunamazsa işlem iptal edilip kullanıcı bilgilendirilsin.
 
-Mevcut "Excel Seç" butonu üst barda aynen kalsın (hızlı erişim için), menüdeki "Excel Aç" ile birlikte iki erişim yolu olsun — ikisi de aynı fonksiyonu çağırsın.
+3) Eşleştirme anahtarı: Ürün Kodu, trim + case-insensitive (OrdinalIgnoreCase) karşılaştırılsın — mevcut çakışma kontrolündeki mantıkla tutarlı olsun.
 
-2) Dışa Aktar davranışı: "Dosya" menüsünden "Dışa Aktar" seçilince (bir dosya açık değilken bu seçenek devre dışı olsun):
+4) Kolon çakışması — kullanıcıya sorulsun: A ve B'nin şemaları karşılaştırılsın (hangi kolonlar hangisinde var). Eğer bir kolon hem A'da hem B'de varsa (örn. ikisinde de Stok Adeti), birleştirme işlemi başlamadan önce kullanıcıya bir diyalog gösterilsin. Bu diyalog:
 
-SaveFileDialog açılsın, kullanıcı konum ve dosya adı seçsin. Varsayılan dosya adı örn. "Urunler_Export_yyyyMMdd_HHmm.xlsx" formatında olsun. Filtre .xlsx ile sınırlı olsun.
-O an grid'de görünen (yani _bindingSource.DataSource'taki, arama + filtre + sıralama uygulanmış) ürün listesi alınsın.
-ClosedXML ile yeni bir workbook oluşturulup, başlık satırına standart Türkçe kolon adları (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi) yazılsın, altına sırasıyla ürün verileri yazılsın.
-Kullanıcının seçtiği konuma kaydedilsin.
+Çakışan her kolon için ayrı ayrı (satır satır değil, kolon başına bir kerelik) bir seçim sunsun: "A'yı kullan" veya "B'yi kullan".
+Eğer çakışan kolon Stok Adeti ise, ek olarak "Topla (A + B)" seçeneği de bulunsun.
+Varsayılan seçim "A'yı kullan" olsun.
+Bu diyalog, mevcut FiltrePanel/SiralamaPanel gibi ayrı bir Form olarak kurulabilir (aynı görsel dil, Guna2Button/ComboBox kullanımı).
+Kullanıcı "İptal" derse birleştirme işlemi tamamen durdurulsun, hiçbir dosya oluşturulmasın.
 
-3) Sonuç bildirimi: İşlem tamamlanınca durum çubuğunda (_lblStatus) veya kısa bir MessageBox ile "X ürün dışa aktarıldı: [dosya adı]" gibi bir onay mesajı gösterilsin.
+5) Birleştirme mantığı:
 
-4) Hata durumu: Kaydetme sırasında bir hata oluşursa (örn. yazma izni yok, disk dolu) kullanıcıya net bir hata mesajı gösterilsin, uygulama çökmemeli.
+A'daki her ürün için: Ürün Kodu B'de eşleşiyorsa, A'da hiç olmayan kolonlar B'den doldurulsun. Çakışan kolonlar için 4. maddedeki kullanıcı kararı uygulansın (A değeri / B değeri / toplam — sadece Stok Adeti için toplam).
+B'de olup A'da hiç bulunamayan Ürün Kodu'na sahip satırlar, yeni satır olarak sona eklensin. Bu yeni satırlarda A'nın sahip olmadığı ama B'nin sahip olduğu alanlar doldurulsun, hiçbirinde bilgi yoksa boş kalsın.
+Çıktı, standart Türkçe başlıklarla (Ürün Kodu, Stok Adeti, Birim, Fiyat, Para Birimi) ve sabit kolon sırasıyla yazılsın (mevcut ExcelExportService mantığıyla tutarlı, mümkünse aynı servis genişletilerek kullanılsın).
 
-Kapsam dışı: Bu turda içe aktarma (Birleştir) ve Kaydet işlevsel değil, sadece menüde pasif yer tutucu olarak duruyorlar. Grid'de görünmeyen (filtrelenmiş dışı kalan) ürünler dışa aktarılmasın — sadece o an ekranda ne varsa o gitsin.
+6) Kaydetme: Birleştirme tamamlandıktan sonra SaveFileDialog ile kullanıcı konum/isim seçsin. Varsayılan dosya adı örn. "Urunler_Birlesim_yyyyMMdd_HHmm.xlsx".
 
-Test: Hiç filtre/arama uygulanmadan tüm listeyi dışa aktar → tüm ürünler çıkmalı. Arama/filtre uygulayıp daraltılmış bir liste varken dışa aktar → sadece görünen ürünler çıkmalı. Çıkan dosya uygulamaya tekrar "Excel Seç" veya "Excel Aç" ile açılabilmeli ve doğru okunmalı. Menüdeki "Excel Aç" ve üst bardaki "Excel Seç" butonunun aynı davrandığı doğrulansın.
+7) Özet mesajı: İşlem bitince kullanıcıya kısa bir özet gösterilsin: kaç ürünün eksik bilgisi dolduruldu, kaç yeni ürün eklendi, hangi kolonlarda hangi çakışma kararının uygulandığı.
+
+8) Hata durumları: B dosyası okunamazsa, Ürün Kodu bulunamazsa, veya kaydetme sırasında hata olursa kullanıcıya net mesaj gösterilsin, uygulama çökmemeli.
+
+Kapsam dışı: Sürükle-bırak bu turda yok (sadece menüden dosya seçimi). Satır bazında (ürün bazında) çakışma çözümü yok — karar kolon bazında bir kez alınıyor, tüm satırlara aynı şekilde uygulanıyor.
+
+Test: (a) Hiç çakışan kolon olmayan iki dosya (A: Kod+Birim, B: Kod+Fiyat) birleştirilsin → çakışma diyaloğu hiç çıkmamalı, doğrudan birleşsin. (b) Ortak kolonu olan iki dosya (ikisinde de Stok Adeti) birleştirilsin → diyalog çıkmalı, "A'yı kullan" ve "Topla" seçenekleri ayrı ayrı denenip doğru sonucu verdiği doğrulansın. (c) B'de A'da olmayan ürün kodları varsa yeni satır olarak eklendiği doğrulansın. (d) Orijinal A ve B dosyalarının hiç değişmediği (boyut/zaman damgası) doğrulansın.
