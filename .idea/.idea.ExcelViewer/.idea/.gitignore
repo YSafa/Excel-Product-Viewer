@@ -14,5 +14,10 @@
 /dataSources/
 /dataSources.local.xml
 
+bin/
+obj/
+*.user
+.vs/
+
 
 temp.txt
