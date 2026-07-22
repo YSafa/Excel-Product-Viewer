@@ -10,10 +10,6 @@ namespace ExcelViewer.Services;
 /// </summary>
 public sealed class ExcelReaderService
 {
-    // Başlık satırı, dosyanın en fazla ilk bu kadar dolu satırı içinde aranır.
-    // Böylece başlıktan önce logo, rapor başlığı, tarih gibi satırlar tolere edilir.
-    private const int HeaderScanRows = 10;
-
     /// <summary>
     /// İlk çalışma sayfasındaki tüm ürün satırlarını okur.
     /// Bloklayan I/O arka plan thread'inde çalışır, böylece UI donmaz.
@@ -44,36 +40,11 @@ public sealed class ExcelReaderService
         // Başlık satırını tespit et: ilk 10 dolu satır içinde, EN ÇOK mantıksal
         // kolona eşlenen satır başlık kabul edilir. Böylece başlıktan önce logo,
         // rapor başlığı, tarih veya "Model/Total" gibi tek bir alias'a çakışan
-        // özet satırları olsa da doğru (en zengin) başlık satırı seçilir.
+        // özet satırları olsa da doğru (en zengin) başlık satırı seçilir. Aynı
+        // mantığı yazma tarafı (ExcelWriterService) da ColumnResolver üzerinden
+        // kullanır, böylece iki taraf aynı satırı/kolonları hedefler.
         List<IXLRangeRow> rows = usedRange.RowsUsed().ToList();
-        int headerIndex = -1;
-        int enIyiSkor = 0;
-        int enIyiGenislik = 0;
-        ColumnMap columns = default;
-        int scanLimit = Math.Min(HeaderScanRows, rows.Count);
-        for (int i = 0; i < scanLimit; i++)
-        {
-            // Altındaki veri satırlarını da geç: aynı hücre hem Birim hem Fiyat
-            // anahtar kelimesini içerdiğinde (örn. "Unit Price") kararı verinin
-            // sayısal/metin olmasına göre vermek için kullanılır.
-            ColumnMap aday = ColumnResolver.Resolve(rows[i], rows.Skip(i + 1));
-            int skor = ColumnResolver.EslesenKolonSayisi(aday);
-            if (skor == 0)
-                continue;
-
-            // Önce en çok kolona eşlenen; eşitlikte daha geniş (daha çok dolu
-            // hücreli) satır — gerçek başlık, üstteki dar özet satırını yener.
-            int genislik = ColumnResolver.DoluBaslikSayisi(rows[i]);
-            if (skor > enIyiSkor || (skor == enIyiSkor && genislik > enIyiGenislik))
-            {
-                enIyiSkor = skor;
-                enIyiGenislik = genislik;
-                headerIndex = i;
-                columns = aday;
-            }
-        }
-
-        if (headerIndex < 0)
+        if (!ColumnResolver.TryResolveHeader(rows, out int headerIndex, out ColumnMap columns))
             throw new InvalidDataException(
                 "Excel dosyasında tanınan bir başlık satırı bulunamadı. " +
                 "En az 'Ürün Kodu' sütununu içeren bir başlık satırı gerekli.");

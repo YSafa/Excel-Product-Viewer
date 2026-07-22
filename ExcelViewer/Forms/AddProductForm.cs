@@ -260,6 +260,10 @@ public sealed class AddProductForm : Form
         foreach (string s in excelDegerleri)
             Ekle(s);
 
+        // En başa boş bir seçenek: kullanıcı, o kolonun bulunmadığı dosyalarda
+        // Birim/Para Birimi'ni "boş" seçerek işlemi iptal etmeden kaydedebilsin.
+        sirali.Insert(0, string.Empty);
+
         combo.Items.AddRange(sirali.Cast<object>().ToArray());
     }
 

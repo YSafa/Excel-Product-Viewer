@@ -242,6 +242,55 @@ public static class ColumnResolver
             matched.Add((col, bestLength));
     }
 
+    // Başlık satırı, dosyanın en fazla ilk bu kadar dolu satırı içinde aranır.
+    // Böylece başlıktan önce logo, rapor başlığı, tarih gibi satırlar tolere edilir.
+    // Hem okuma hem yazma tarafı aynı sınırı kullansın diye burada tutulur.
+    public const int HeaderScanRows = 10;
+
+    /// <summary>
+    /// Verilen satırlar içinde başlık satırını tespit eder ve kolon haritasını
+    /// döndürür. Okuma ve yazma tarafı bu ortak mantığı paylaşır, böylece ikisi
+    /// de aynı satırı başlık kabul edip aynı kolonlara yazar/okur.
+    ///
+    /// İlk <see cref="HeaderScanRows"/> satır içinde EN ÇOK mantıksal kolona
+    /// eşlenen satır başlık kabul edilir; eşitlikte daha geniş (daha çok dolu
+    /// hücreli) satır — gerçek başlık, üstteki dar özet satırını yener. Her aday
+    /// satır için tam eşleşme + substring fallback + tek hücrede çoklu anahtar
+    /// kelime çakışması (<see cref="Resolve"/>) uygulanır.
+    /// </summary>
+    /// <returns>Başlık bulunduysa true; hiçbir satır bir kolona eşlenmezse false.</returns>
+    public static bool TryResolveHeader(
+        IReadOnlyList<IXLRangeRow> rows, out int headerIndex, out ColumnMap columns)
+    {
+        headerIndex = -1;
+        columns = default;
+        int enIyiSkor = 0;
+        int enIyiGenislik = 0;
+        int scanLimit = Math.Min(HeaderScanRows, rows.Count);
+
+        for (int i = 0; i < scanLimit; i++)
+        {
+            // Altındaki satırları geç: aynı hücre hem Birim hem Fiyat anahtar
+            // kelimesini içerdiğinde (örn. "Unit Price") kararı verinin
+            // sayısal/metin olmasına göre vermek için kullanılır.
+            ColumnMap aday = Resolve(rows[i], rows.Skip(i + 1));
+            int skor = EslesenKolonSayisi(aday);
+            if (skor == 0)
+                continue;
+
+            int genislik = DoluBaslikSayisi(rows[i]);
+            if (skor > enIyiSkor || (skor == enIyiSkor && genislik > enIyiGenislik))
+            {
+                enIyiSkor = skor;
+                enIyiGenislik = genislik;
+                headerIndex = i;
+                columns = aday;
+            }
+        }
+
+        return headerIndex >= 0;
+    }
+
     /// <summary>
     /// Bir satırın kaç mantıksal kolona eşlendiğini döndürür (0-5). Başlık
     /// satırını tespit ederken kullanılır: en çok kolona eşlenen satır başlıktır.

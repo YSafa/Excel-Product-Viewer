@@ -56,14 +56,17 @@ public sealed class ExcelWriterService
         if (usedRange == null)
             throw new InvalidOperationException("Excel sayfası boş; başlık satırı bulunamadı.");
 
-        IXLRangeRow headerRow = usedRange.FirstRow();
-        ColumnMap columns = ColumnResolver.Resolve(headerRow, usedRange.RowsUsed().Skip(1));
+        // Okuma tarafıyla aynı tespit: ilk 10 satır içinde en zengin başlık satırı
+        // seçilir (tam eşleşme + substring fallback + çoklu anahtar kelime çakışması).
+        List<IXLRangeRow> rows = usedRange.RowsUsed().ToList();
+        (ColumnMap columns, int headerIndex) = ResolveColumns(rows);
 
-        if (columns.UrunKodu == 0)
-            throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
+        // Eksik kolona yazma engeli: kullanıcı bir alana değer girdiyse ama o kolon
+        // dosyada yoksa, kısmi kayıt yerine işlemi tamamen iptal et ve uyar.
+        EksikKolonaYazmayiEngelle(urun, columns);
 
-        // Aynı Ürün Koduna sahip mevcut satırı ara (başlık satırını atla).
-        IXLRangeRow? mevcutSatir = FindRowByCode(usedRange, columns.UrunKodu, urun.UrunKodu);
+        // Aynı Ürün Koduna sahip mevcut satırı ara (başlık ve üstündeki satırları atla).
+        IXLRangeRow? mevcutSatir = FindRowByCode(rows, headerIndex, columns.UrunKodu, urun.UrunKodu);
 
         if (mevcutSatir != null)
         {
@@ -145,11 +148,13 @@ public sealed class ExcelWriterService
         if (usedRange == null)
             throw new InvalidOperationException("Excel sayfası boş; başlık satırı bulunamadı.");
 
-        ColumnMap columns = ColumnResolver.Resolve(usedRange.FirstRow(), usedRange.RowsUsed().Skip(1));
-        if (columns.UrunKodu == 0)
-            throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
+        List<IXLRangeRow> rows = usedRange.RowsUsed().ToList();
+        (ColumnMap columns, int headerIndex) = ResolveColumns(rows);
 
-        IXLRangeRow? satir = FindRowByCode(usedRange, columns.UrunKodu, orijinalKod);
+        // Eksik kolona yazma engeli: değeri olan bir alanın kolonu yoksa iptal et.
+        EksikKolonaYazmayiEngelle(urun, columns);
+
+        IXLRangeRow? satir = FindRowByCode(rows, headerIndex, columns.UrunKodu, orijinalKod);
         if (satir == null)
             throw new InvalidOperationException(
                 $"Güncellenecek ürün bulunamadı: {orijinalKod}. Dosya değişmiş olabilir.");
@@ -205,11 +210,10 @@ public sealed class ExcelWriterService
         if (usedRange == null)
             return false;
 
-        ColumnMap columns = ColumnResolver.Resolve(usedRange.FirstRow(), usedRange.RowsUsed().Skip(1));
-        if (columns.UrunKodu == 0)
-            throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
+        List<IXLRangeRow> rows = usedRange.RowsUsed().ToList();
+        (ColumnMap columns, int headerIndex) = ResolveColumns(rows);
 
-        IXLRangeRow? satir = FindRowByCode(usedRange, columns.UrunKodu, kod);
+        IXLRangeRow? satir = FindRowByCode(rows, headerIndex, columns.UrunKodu, kod);
         if (satir == null)
             return false;
 
@@ -233,11 +237,58 @@ public sealed class ExcelWriterService
         return true;
     }
 
-    private static IXLRangeRow? FindRowByCode(IXLRange usedRange, int kodColumn, string kod)
+    /// <summary>
+    /// Okuma tarafıyla (ExcelReaderService/ColumnResolver) aynı mantıkla başlık
+    /// satırını ve kolon haritasını çözer. Başlık bulunamazsa ya da zorunlu
+    /// Ürün Kodu kolonu yoksa işlem tamamen engellenir.
+    /// </summary>
+    private static (ColumnMap Columns, int HeaderIndex) ResolveColumns(List<IXLRangeRow> rows)
+    {
+        if (!ColumnResolver.TryResolveHeader(rows, out int headerIndex, out ColumnMap columns))
+            throw new InvalidOperationException(
+                "Excel dosyasında tanınan bir başlık satırı bulunamadı.");
+
+        // Okuma tarafındaki aynı güvenlik kontrolü: Ürün Kodu zorunlu çapa kolondur.
+        if (columns.UrunKodu == 0)
+            throw new InvalidOperationException("Ürün Kodu başlıklı kolon bulunamadı.");
+
+        return (columns, headerIndex);
+    }
+
+    /// <summary>
+    /// Kullanıcı bir alana değer girdiği hâlde o alanın kolonu dosyada yoksa
+    /// (konum 0), kısmi/sessiz kayıt yerine işlemi tamamen iptal eder ve hangi
+    /// sütun(lar)ın eksik olduğunu bildirir. Ürün Kodu ayrıca <see cref="ResolveColumns"/>
+    /// içinde zorunlu tutulur.
+    /// </summary>
+    private static void EksikKolonaYazmayiEngelle(Urun urun, ColumnMap columns)
+    {
+        var eksik = new List<string>();
+
+        if (urun.StokAdeti != 0m && columns.StokAdeti == 0) eksik.Add("Stok Adeti");
+        if (!string.IsNullOrWhiteSpace(urun.Birim) && columns.Birim == 0) eksik.Add("Birim");
+        if (urun.Fiyat != 0m && columns.Fiyat == 0) eksik.Add("Fiyat");
+        if (!string.IsNullOrWhiteSpace(urun.ParaBirimi) && columns.ParaBirimi == 0) eksik.Add("Para Birimi");
+
+        if (eksik.Count == 0)
+            return;
+
+        string mesaj = eksik.Count == 1
+            ? $"Bu Excel dosyasında '{eksik[0]}' sütunu bulunamadığı için bu bilgi kaydedilemiyor. " +
+              "Kayıt iptal edildi."
+            : $"Bu Excel dosyasında şu sütunlar bulunamadığı için girdiğiniz bilgiler kaydedilemiyor: " +
+              $"{string.Join(", ", eksik)}. Kayıt iptal edildi.";
+
+        throw new InvalidOperationException(mesaj);
+    }
+
+    private static IXLRangeRow? FindRowByCode(
+        List<IXLRangeRow> rows, int headerIndex, int kodColumn, string kod)
     {
         string aranan = kod.Trim();
 
-        foreach (IXLRangeRow row in usedRange.RowsUsed().Skip(1))
+        // Başlık ve üstündeki (logo/özet) satırları atla; yalnızca veri satırlarına bak.
+        foreach (IXLRangeRow row in rows.Skip(headerIndex + 1))
         {
             string mevcut = row.Cell(kodColumn).GetString().Trim();
             if (mevcut.Equals(aranan, StringComparison.OrdinalIgnoreCase))
