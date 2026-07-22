@@ -185,7 +185,6 @@ Log klasörü yoksa otomatik oluşturulur ve her işlem dosyanın sonuna eklenir
 ```
 ExcelViewer/
 ├── ExcelViewer.sln
-├── temp.txt
 └── ExcelViewer/
     ├── ExcelViewer.csproj        # Hedef çerçeve ve NuGet paketleri
     ├── Program.cs                # Uygulama giriş noktası (MainForm'u başlatır)
