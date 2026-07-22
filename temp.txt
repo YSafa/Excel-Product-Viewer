@@ -1,22 +1,12 @@
-temp.txt:
+Hedef: Stok Adeti ve Fiyat alanlarındaki +/- ifade hesaplaması, şu an alandan çıkılır çıkılmaz (Validating olayında) anında yapılıyor. Bunun yerine, ifade sadece "Kaydet" butonuna basıldığında hesaplansın; kullanıcı formda gezinirken (başka alana tıklarken) alan içeriği değişmesin, yazdığı ifade (120-16) olduğu gibi görünmeye devam etsin.
 
-1) Stok Adeti ve Fiyat negatif olamaz
+Değişiklik:
 
-Şu an hem doğrudan girişte hem de +/- ifade hesaplamasında negatif değerlere izin veriliyor. Bu engellensin:
+Stok Adeti ve Fiyat alanlarındaki mevcut Validating tabanlı anlık hesaplama kaldırılsın (alandan çıkarken artık hiçbir dönüşüm yapılmasın).
+Hesaplama mantığı, Kaydet butonunun click handler'ının başına taşınsın: kullanıcı Kaydet'e basınca, önce Stok Adeti ve Fiyat alanlarındaki metin kontrol edilsin — eğer +/- operatörü içeren bir ifadeyse hesaplansın, düz sayıysa olduğu gibi kullanılsın.
+Hesaplanan sonuç negatifse, kayıt yine engellensin ve kullanıcı uyarılsın (mevcut negatif kontrolü, artık sadece Kaydet anında çalışacak şekilde birleştirilsin).
+Geçersiz bir ifade (120- gibi yarım) girildiyse, yine Kaydet anında yakalanıp uyarı gösterilsin.
+Artık hesaplama sadece Kaydet'te tetiklendiği için, önceki turda eklenen Validating + CausesValidation = false (İptal'i bloklamama çözümü) artık gerekli değil — bu karmaşıklık kaldırılabilir, İptal butonu zaten Kaydet mantığını hiç çağırmayacağı için sorunsuz çalışır. Kod sadeleştirilsin.
+KeyPress kısıtlamaları (rakam + +/- + tek ondalık ayıraç kabul etme) aynen kalsın, değişmesin.
 
-Kaydet anında: Stok Adeti veya Fiyat 0'ın altındaysa, kayıt engellensin ve kullanıcıya net bir uyarı gösterilsin (örn. "Stok Adeti negatif olamaz." / "Fiyat negatif olamaz.").
-İfade hesaplamasında (Leave olayında 120-200 gibi bir ifade negatif sonuç verirse): sonuç alana yazılmadan önce kontrol edilsin, negatifse kullanıcıya uyarı gösterilsin ve alan ya önceki haliyle kalsın.
-Bu kural hem Ürün Ekle hem Ürün Düzenle formunda geçerli olsun.
-
-2) Filtre ve Sıralama butonları kayboldu — regresyon
-
-Önceki turdaki dinamik boyutlandırma değişikliğinden (Filtre/Sıralama'ya Anchor = Top | Right verilmesi) sonra bu iki buton artık hiç görünmüyor. Muhtemelen Anchor ayarlandığı sırada butonların konumu, pencerenin o anki genişliğine göre yanlış hesaplanıp görünür alanın dışına taşmış olabilir (veya topPanel'in genişliği form ile senkron değil). Bu bir hata, düzeltilsin:
-
-_btnFiltre ve _btnSiralama'nın Location değerleri, Anchor ayarlandıktan sonra da pencere varsayılan boyutunda (960px genişlik) görünür alan içinde kalacak şekilde yeniden hesaplansın/doğrulansın.
-Düzeltme sonrası pencere varsayılan boyutunda açıldığında iki butonun da görünür ve tıklanabilir olduğu doğrulansın.
-
-3) İptal uyarısı — MessageBox olarak gösterilsin
-
-Birleştirme çakışma diyaloğunda "İptal" seçilince şu an sadece durum çubuğunda (_lblStatus, ekranın sol alt köşesi) "Birleştirme iptal edildi." yazıyor. Bu yeterince görünür değil. Bunun yerine (veya buna ek olarak) bir MessageBox ile kullanıcıya açıkça bildirilsin — örn. MessageBox.Show("Birleştirme iptal edildi.", "İptal Edildi", MessageBoxButtons.OK, MessageBoxIcon.Information).
-
-Test: (1) Stok Adeti'ne 5-10 yazıp alandan çıkınca uyarı çıktığı, kaydetmeye çalışınca da engellendiği doğrulansın; Fiyat için de aynısı. (2) Pencere açılışta Filtre ve Sıralama butonlarının göründüğü ve çalıştığı doğrulansın. (3) Birleştirmede İptal'e basınca ekranın ortasında bir uyarı penceresi çıktığı doğrulansın.
+Test: 120-16 yazıp başka bir alana tıkla → alan hâlâ 120-16 yazıyor olmalı (değişmemeli). Sonra Kaydet'e bas → Excel'e 104 olarak yazılmalı, form kapanmalı. Negatif sonuçlanan bir ifadeyle (5-10) Kaydet'e basınca uyarı çıkmalı, form açık kalmalı. Geçersiz ifadeyle (120-) Kaydet'e basınca uyarı çıkmalı. Düz sayı girişinde (50) davranış hiç değişmemeli.

@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Globalization;
 using ExcelViewer.Models;
 using Guna.UI2.WinForms;
@@ -139,11 +138,8 @@ public sealed class AddProductForm : Form
             ForeColor = Color.Black,
         };
         // Stok girişi birime göre: "adet" ise tam sayı, diğer birimlerde ondalık.
+        // +/- ifade hesaplaması alandan çıkarken değil, yalnızca Kaydet'te yapılır.
         _txtStokAdeti.KeyPress += StokKeyPress;
-        // Alandan çıkınca +/- içeren ifade varsa hesaplanıp sonuç yazılır.
-        // Validating (Leave değil) kullanılır ki İptal'e basıldığında (CausesValidation
-        // = false) negatif-sonuç uyarısı açılıp iptali engellemesin.
-        _txtStokAdeti.Validating += IfadeAlaniValidating;
         Controls.Add(_txtStokAdeti);
 
         AddLabel("Birim", comboX, y);
@@ -172,8 +168,6 @@ public sealed class AddProductForm : Form
         };
         // Sadece ondalık sayı: harf engelli, tek ondalık ayıraç serbest.
         _txtFiyat.KeyPress += OndalikKeyPress;
-        // Alandan çıkınca +/- içeren ifade varsa hesaplanıp sonuç yazılır (bkz. yukarı).
-        _txtFiyat.Validating += IfadeAlaniValidating;
         Controls.Add(_txtFiyat);
 
         AddLabel("Para Birimi", comboX, y);
@@ -221,8 +215,6 @@ public sealed class AddProductForm : Form
             BorderRadius = 8,
             FillColor = Color.FromArgb(150, 150, 160),
             Font = new Font("Segoe UI Semibold", 9.5F),
-            // İptal'de alanların Validating'i (negatif-ifade uyarısı) tetiklenmesin.
-            CausesValidation = false,
         };
         _btnIptal.Click += (_, _) => { DialogResult = DialogResult.Cancel; Close(); };
 
@@ -366,32 +358,17 @@ public sealed class AddProductForm : Form
     }
 
     /// <summary>
-    /// Stok Adeti / Fiyat alanından çıkıldığında, içerik bir +/- operatörü
-    /// içeriyorsa ifadeyi hesaplayıp sonucu alana yazar. Düz bir sayıysa hiçbir şey
-    /// değişmez. Sonuç negatifse (ör. "120-200") yazılmaz; uyarı gösterilir ve alan
-    /// önceki (ifade) haliyle kalır. Geçersiz/yarım kalmış bir ifadede (ör. "120-")
-    /// alan boşaltılmaz; içerik olduğu gibi kalır ve Kaydet'teki mevcut sayı
-    /// doğrulaması uyarı verir.
+    /// Sayısal bir alanın metnini decimal değere çözer: +/- operatörü içeriyorsa
+    /// ifade olarak hesaplar (ör. "120-16" → 104), düz sayıysa doğrudan ayrıştırır.
+    /// Yarım/geçersiz ifade veya geçersiz sayıda false döner. Yalnızca Kaydet
+    /// anında çağrılır; kullanıcı formda gezinirken alan içeriği değişmez.
     /// </summary>
-    private void IfadeAlaniValidating(object? sender, CancelEventArgs e)
+    private static bool AlanDegeriniCoz(string metin, out decimal deger)
     {
-        if (sender is not Guna2TextBox kutu)
-            return;
+        if (IcerirOperator(metin))
+            return TryIfadeHesapla(metin, out deger);
 
-        if (!IcerirOperator(kutu.Text))
-            return; // Düz sayı: dokunma.
-
-        if (!TryIfadeHesapla(kutu.Text, out decimal sonuc))
-            return; // Geçersiz: metni koru; Kaydet doğrulaması tutarlı uyarıyı gösterir.
-
-        if (sonuc < 0)
-        {
-            // Negatif sonuç yazılmaz; alan önceki (ifade) haliyle kalır.
-            Uyar(kutu == _txtStokAdeti ? "Stok Adeti negatif olamaz." : "Fiyat negatif olamaz.");
-            return;
-        }
-
-        kutu.Text = SayiBicim(sonuc);
+        return TryParseDecimal(metin, out deger);
     }
 
     /// <summary>
@@ -479,7 +456,9 @@ public sealed class AddProductForm : Form
             return;
         }
 
-        if (!TryParseDecimal(_txtStokAdeti.Text, out decimal stokAdeti))
+        // +/- ifadesi (ör. "120-16") burada, Kaydet anında hesaplanır; düz sayı
+        // olduğu gibi kullanılır. Yarım/geçersiz ifade ("120-") false döner.
+        if (!AlanDegeriniCoz(_txtStokAdeti.Text, out decimal stokAdeti))
         {
             Uyar("Stok Adeti geçerli bir sayı olmalıdır.");
             ActiveControl = _txtStokAdeti;
@@ -502,7 +481,7 @@ public sealed class AddProductForm : Form
             return;
         }
 
-        if (!TryParseDecimal(_txtFiyat.Text, out decimal fiyat))
+        if (!AlanDegeriniCoz(_txtFiyat.Text, out decimal fiyat))
         {
             Uyar("Fiyat geçerli bir sayı olmalıdır.");
             ActiveControl = _txtFiyat;
